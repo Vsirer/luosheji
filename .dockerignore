@@ -1,0 +1,31 @@
+# 忽略本地依赖
+node_modules
+npm-debug.log
+
+# 忽略构建产物
+build
+.next
+
+# 忽略本地环境变量
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 忽略 Git 记录
+.git
+.gitignore
+
+# 忽略 IDE 配置
+.vscode
+.idea
+.DS_Store
+
+# 忽略日志文件
+*.log
+startup_debug.log
+
+# 忽略 Docker 自身文件
+Dockerfile
+.dockerignore
