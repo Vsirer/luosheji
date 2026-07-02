@@ -1,6 +1,0 @@
-{
-  "name": "luosheji-v1.4",
-  "description": "释放你的逻辑设计力",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
