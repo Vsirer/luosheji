@@ -1,0 +1,6 @@
+{
+  "name": "小逻-多模态AI意图操作系统",
+  "description": "释放你的逻辑设计力",
+  "requestFramePermissions": ["clipboard-read", "clipboard-write"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
