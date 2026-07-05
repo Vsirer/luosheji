@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Clapperboard, 
   ImageIcon, 
@@ -22,7 +22,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Cpu,
-  HelpCircle
+  HelpCircle,
+  MousePointer,
+  Hand,
+  ChevronDown,
+  GitFork,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { safeJson } from '../lib/fetch';
@@ -46,6 +51,111 @@ export const Layout: React.FC<LayoutProps> = ({
   const [ossStatus, setOssStatus] = useState<{ success: boolean; message: string } | null>(null);
   const isCollapsed = true;
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select');
+  const [isCanvasSidebarOpen, setIsCanvasSidebarOpen] = useState(false);
+  const [canvasLayoutMode, setCanvasLayoutMode] = useState<'mindmap' | 'bento' | 'semi_auto'>('mindmap');
+  const [isLayoutDropdownOpen, setIsLayoutDropdownOpen] = useState(false);
+  const [isProfileHovered, setIsProfileHovered] = useState(false);
+  const profileTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [isTopLeftHovered, setIsTopLeftHovered] = useState(false);
+  const topLeftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleTopLeftMouseEnter = () => {
+    if (topLeftTimeoutRef.current) {
+      clearTimeout(topLeftTimeoutRef.current);
+      topLeftTimeoutRef.current = null;
+    }
+    setIsTopLeftHovered(true);
+  };
+
+  const handleTopLeftMouseLeave = () => {
+    if (topLeftTimeoutRef.current) {
+      clearTimeout(topLeftTimeoutRef.current);
+    }
+    topLeftTimeoutRef.current = setTimeout(() => {
+      setIsTopLeftHovered(false);
+    }, 300);
+  };
+
+  const handleProfileMouseEnter = () => {
+    if (profileTimeoutRef.current) {
+      clearTimeout(profileTimeoutRef.current);
+      profileTimeoutRef.current = null;
+    }
+    setIsProfileHovered(true);
+  };
+
+  const handleProfileMouseLeave = () => {
+    if (profileTimeoutRef.current) {
+      clearTimeout(profileTimeoutRef.current);
+    }
+    profileTimeoutRef.current = setTimeout(() => {
+      setIsProfileHovered(false);
+    }, 250);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (profileTimeoutRef.current) {
+        clearTimeout(profileTimeoutRef.current);
+      }
+      if (topLeftTimeoutRef.current) {
+        clearTimeout(topLeftTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail && customEvent.detail.mode) {
+        setInteractionMode(customEvent.detail.mode);
+      }
+    };
+    const handleSidebarSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail && typeof customEvent.detail.open === 'boolean') {
+        setIsCanvasSidebarOpen(customEvent.detail.open);
+      }
+    };
+    const handleLayoutSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail && customEvent.detail.mode) {
+        setCanvasLayoutMode(customEvent.detail.mode);
+      }
+    };
+    window.addEventListener('sync-interaction-mode', handleSync);
+    window.addEventListener('sync-canvas-sidebar-open', handleSidebarSync);
+    window.addEventListener('sync-canvas-layout-mode', handleLayoutSync);
+    return () => {
+      window.removeEventListener('sync-interaction-mode', handleSync);
+      window.removeEventListener('sync-canvas-sidebar-open', handleSidebarSync);
+      window.removeEventListener('sync-canvas-layout-mode', handleLayoutSync);
+    };
+  }, []);
+
+  const changeInteractionMode = (mode: 'select' | 'pan') => {
+    setInteractionMode(mode);
+    window.dispatchEvent(new CustomEvent('change-interaction-mode', {
+      detail: { mode }
+    }));
+  };
+
+  const toggleCanvasSidebar = () => {
+    const nextState = !isCanvasSidebarOpen;
+    setIsCanvasSidebarOpen(nextState);
+    window.dispatchEvent(new CustomEvent('change-canvas-sidebar-open', {
+      detail: { open: nextState }
+    }));
+  };
+
+  const changeCanvasLayoutMode = (mode: 'mindmap' | 'bento' | 'semi_auto') => {
+    setCanvasLayoutMode(mode);
+    window.dispatchEvent(new CustomEvent('change-canvas-layout-mode', {
+      detail: { mode }
+    }));
+  };
 
   useEffect(() => {
     const checkDbStatus = async () => {
@@ -78,7 +188,6 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const navItems = [
     { id: 'space', name: '灵境', icon: ImageIcon },
-    { id: 'mycompany', name: '协同', icon: Building2 },
     { id: 'tasks', name: '资产', icon: LayoutGrid },
     { id: 'skills', name: '技能', icon: Cpu },
   ];
@@ -137,13 +246,267 @@ export const Layout: React.FC<LayoutProps> = ({
   return (
     <div className="h-screen flex bg-white text-slate-800">
       {!isGuest && (
-        <aside className="fixed left-6 top-[calc(50vh-118px)] z-50 flex flex-col items-center justify-start pointer-events-none select-none">
-          {/* Floating Dock Container (Styled like Figure 1's light theme) */}
+        <>
+          {/* Top-Left Panel (Green Box Position): Points Display and Action Buttons */}
           <div 
-            onMouseEnter={() => setIsSidebarHovered(true)}
-            onMouseLeave={() => setIsSidebarHovered(false)}
-            className="bg-[#f5f2fd]/95 border border-[#e3dbf8] shadow-[0_15px_40px_rgba(124,58,237,0.12)] rounded-2xl py-3 px-2 flex flex-col items-center gap-3 backdrop-blur-md pointer-events-auto transition-all duration-300"
+            onMouseEnter={handleTopLeftMouseEnter}
+            onMouseLeave={handleTopLeftMouseLeave}
+            className="fixed left-6 top-6 z-[9999] flex items-center gap-3 pointer-events-auto bg-[#f5f2fd]/95 border border-[#e3dbf8] shadow-[0_15px_40px_rgba(124,58,237,0.12)] rounded-2xl p-2 backdrop-blur-md select-none transition-all duration-300 transform-gpu"
           >
+            {/* 积分 (Points) */}
+            {user && (
+              <div className="flex items-center gap-2 cursor-pointer">
+                <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl text-xs text-indigo-600 font-extrabold shadow-[0_2px_8px_rgba(99,102,241,0.08)]">
+                  <Zap className="w-3.5 h-3.5 fill-indigo-500/10 text-indigo-500 shrink-0" />
+                  <span className="font-black text-indigo-700">{user.points || 0}</span>
+                </div>
+                {user.teamInfo?.teamPoints !== undefined && (
+                  <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-xl text-xs text-amber-600 font-extrabold shadow-[0_2px_8px_rgba(245,158,11,0.08)]">
+                    <Users className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>团队积分: <span className="font-black text-amber-700">{user.teamInfo.teamPoints}</span></span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Divider */}
+            {user && isTopLeftHovered && (
+              <div className="w-[1px] h-6 bg-[#e3dbf8] animate-in fade-in duration-200" />
+            )}
+
+            {/* Action Buttons */}
+            {isTopLeftHovered && (
+              <div className="flex items-center gap-1.5 animate-in fade-in slide-in-from-left-2 duration-300">
+                {isAdmin && (
+                  <div className="relative group flex items-center justify-center">
+                    <button
+                      onClick={() => setActiveTab('admin')}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                        activeTab === 'admin' 
+                          ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.15)] border border-[#e3dbf8]' 
+                          : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
+                      }`}
+                    >
+                      <ShieldCheck className="w-5 h-5" />
+                    </button>
+                    <div className="absolute top-12 left-1/2 -translate-x-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
+                      系统后台
+                    </div>
+                  </div>
+                )}
+
+                {(isLeader || isAdmin || isTeamMember) && (
+                  <div className="relative group flex items-center justify-center">
+                    <button
+                      onClick={() => setActiveTab('leader')}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                        activeTab === 'leader' 
+                          ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.15)] border border-[#e3dbf8]' 
+                          : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
+                      }`}
+                    >
+                      <LayoutDashboard className="w-5 h-5" />
+                    </button>
+                    <div className="absolute top-12 left-1/2 -translate-x-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
+                      团队管理
+                    </div>
+                  </div>
+                )}
+
+                {/* User Profile */}
+                <div 
+                  className="relative flex items-center justify-center"
+                  onMouseEnter={handleProfileMouseEnter}
+                  onMouseLeave={handleProfileMouseLeave}
+                >
+                  <button
+                    onClick={() => setActiveTab('profile')}
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                      activeTab === 'profile' 
+                        ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.15)] border border-[#e3dbf8]' 
+                        : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
+                    }`}
+                  >
+                    <User className="w-5 h-5" />
+                  </button>
+                  {/* Advanced Profile Hover Card */}
+                  <div 
+                    className={`absolute top-full left-1/2 -translate-x-1/2 pt-2 transition-all duration-200 z-50 ${
+                      isProfileHovered ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                    }`}
+                  >
+                    <div className="w-56 bg-white border border-[#e3dbf8] rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+                      <div className="flex items-center space-x-2.5">
+                        <div className="w-9 h-9 rounded-lg bg-[#f5f2fd] flex items-center justify-center border border-[#e3dbf8]/60">
+                          <User className="w-5 h-5 text-[#7c3aed]" />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-bold text-slate-800 truncate">{user?.username || '未登录'}</span>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            {user?.role === 'admin' ? '系统管理员' : user?.role === 'leader' ? '团队组长' : '正式会员'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {onLogout && (
+                        <div className="border-t border-[#e3dbf8]/60 pt-2 flex flex-col">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onLogout();
+                            }}
+                            className="w-full h-9 px-3 rounded-xl flex items-center gap-2 text-[#8f95a3] hover:text-red-500 hover:bg-red-50 transition-all duration-300 cursor-pointer text-xs font-bold"
+                          >
+                            <LogOut className="w-4 h-4" />
+                            <span>安全退出</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <aside className="fixed left-6 top-1/2 -translate-y-1/2 z-[9999] flex flex-col items-center justify-start pointer-events-none select-none transform-gpu">
+            {/* Floating Dock Container (Styled like Figure 1's light theme) */}
+            <div 
+              className="bg-[#f5f2fd]/95 border border-[#e3dbf8] shadow-[0_15px_40px_rgba(124,58,237,0.12)] rounded-2xl py-3 px-2 flex flex-col items-center gap-3 backdrop-blur-md pointer-events-auto transition-all duration-300"
+            >
+            {/* Interaction Tool & Canvas Controls */}
+            {activeTab === 'space' && (
+              <>
+                {/* Pointer / Hand Tool */}
+                <button
+                  onClick={() => changeInteractionMode(interactionMode === "select" ? "pan" : "select")}
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center transition-all duration-300 relative bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.12)] border border-[#e3dbf8] hover:scale-105 active:scale-95 group/tool pointer-events-auto"
+                >
+                  {interactionMode === "select" ? (
+                    <MousePointer className="w-5 h-5 text-[#7c3aed]" />
+                  ) : (
+                    <Hand className="w-5 h-5 text-[#7c3aed]" />
+                  )}
+
+                  {/* Tooltip */}
+                  <div className="absolute left-14 top-1/2 -translate-y-1/2 whitespace-nowrap bg-zinc-900 text-white text-[10px] py-1.5 px-2.5 rounded-lg opacity-0 pointer-events-none group-hover/tool:opacity-100 transition-opacity z-[200] shadow-xl flex items-center space-x-1.5 font-bold">
+                    {interactionMode === "select" ? (
+                      <>
+                        <span>多选工具</span>
+                        <kbd className="bg-zinc-800 px-1 rounded text-[9px] text-zinc-400 font-mono">V</kbd>
+                      </>
+                    ) : (
+                      <>
+                        <span>视图抓手</span>
+                        <kbd className="bg-zinc-800 px-1 rounded text-[9px] text-zinc-400 font-mono">Space</kbd>
+                      </>
+                    )}
+                  </div>
+                </button>
+
+                {/* 画布管理 Toggle (New) */}
+                <button
+                  onClick={toggleCanvasSidebar}
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all duration-300 relative group/canvas-manage pointer-events-auto ${
+                    isCanvasSidebarOpen 
+                      ? 'bg-indigo-50 text-[#7c3aed] border border-[#e3dbf8]' 
+                      : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
+                  }`}
+                >
+                  <PanelLeftOpen className={`w-5 h-5 transition-transform duration-300 ${isCanvasSidebarOpen ? 'rotate-180 text-[#7c3aed]' : ''}`} />
+                  <div className="absolute left-14 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover/canvas-manage:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
+                    {isCanvasSidebarOpen ? '收起画布' : '画布管理'}
+                  </div>
+                </button>
+
+                {/* 画布排列方式 / 自由脑图流 Selector (New) */}
+                <div 
+                  className="relative group/layout-selector"
+                  onMouseEnter={() => setIsLayoutDropdownOpen(true)}
+                  onMouseLeave={() => setIsLayoutDropdownOpen(false)}
+                >
+                  <button
+                    onClick={() => setIsLayoutDropdownOpen(!isLayoutDropdownOpen)}
+                    className="w-11 h-11 rounded-2xl flex items-center justify-center transition-all duration-300 relative text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50 pointer-events-auto"
+                  >
+                    {canvasLayoutMode === "mindmap" && <GitFork className="w-5 h-5 text-purple-500" />}
+                    {canvasLayoutMode === "bento" && <LayoutGrid className="w-5 h-5 text-teal-500" />}
+                    {canvasLayoutMode === "semi_auto" && <Cpu className="w-5 h-5 text-amber-500" />}
+                    
+                    {/* Tiny dot indicator */}
+                    <span className="absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full bg-[#7c3aed]" />
+                  </button>
+
+                  {/* Dropdown on the right side */}
+                  <AnimatePresence>
+                    {isLayoutDropdownOpen && (
+                      <motion.div 
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -10 }}
+                        className="absolute left-14 top-0 bg-white border border-[#e3dbf8] rounded-2xl p-1.5 shadow-2xl z-[200] flex flex-col gap-1 min-w-[130px] pointer-events-auto"
+                      >
+                        <button
+                          onClick={() => {
+                            changeCanvasLayoutMode("mindmap");
+                            setIsLayoutDropdownOpen(false);
+                          }}
+                          className={`flex items-center space-x-1.5 px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-left w-full ${
+                            canvasLayoutMode === "mindmap"
+                              ? "bg-purple-50 text-purple-700"
+                              : "text-gray-600 hover:bg-gray-50"
+                          }`}
+                        >
+                          <GitFork className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                          <span>自由脑图流</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            changeCanvasLayoutMode("bento");
+                            setIsLayoutDropdownOpen(false);
+                          }}
+                          className={`flex items-center space-x-1.5 px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-left w-full ${
+                            canvasLayoutMode === "bento"
+                              ? "bg-teal-50 text-teal-700"
+                              : "text-gray-600 hover:bg-gray-50"
+                          }`}
+                        >
+                          <LayoutGrid className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                          <span>整齐网格流</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            changeCanvasLayoutMode("semi_auto");
+                            setIsLayoutDropdownOpen(false);
+                          }}
+                          className={`flex items-center space-x-1.5 px-2.5 py-2 rounded-lg text-xs font-bold transition-all text-left w-full ${
+                            canvasLayoutMode === "semi_auto"
+                              ? "bg-amber-50 text-amber-700"
+                              : "text-gray-600 hover:bg-gray-50"
+                          }`}
+                        >
+                          <Cpu className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span>区块分类流</span>
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {!isLayoutDropdownOpen && (
+                    <div className="absolute left-14 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover/layout-selector:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
+                      {canvasLayoutMode === "mindmap" && "自由脑图流"}
+                      {canvasLayoutMode === "bento" && "整齐网格流"}
+                      {canvasLayoutMode === "semi_auto" && "区块分类流"}
+                    </div>
+                  )}
+                </div>
+
+                <div className="w-8 border-b border-[#e3dbf8]/80 my-0.5" />
+              </>
+            )}
+
             {/* Nav Items */}
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -154,7 +517,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 <div key={item.id} className="relative group flex items-center justify-center">
                   <button
                     onClick={() => setActiveTab(item.id)}
-                    className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 relative ${
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all duration-300 relative ${
                       isActive 
                         ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.18)]' 
                         : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
@@ -182,141 +545,10 @@ export const Layout: React.FC<LayoutProps> = ({
               );
             })}
 
-            {/* Divider if secondary items exist */}
-            {(isAdmin || isLeader || isTeamMember) && (
-              <div className={`w-6 h-[1px] bg-[#e3dbf8]/80 my-0.5 transition-all duration-300 ${isSidebarHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-0 h-0 my-0'}`} />
-            )}
-
-            {/* Hover-reveal secondary items container */}
-            <div 
-              className={`flex flex-col items-center gap-3 transition-all duration-300 ease-in-out overflow-hidden ${
-                isSidebarHovered 
-                  ? 'max-h-[350px] opacity-100 mt-1 pointer-events-auto' 
-                  : 'max-h-0 opacity-0 mt-0 pointer-events-none'
-              }`}
-            >
-              {/* Secondary Admin/Team Items */}
-              {isAdmin && (
-                <div className="relative group flex items-center justify-center">
-                  <button
-                    onClick={() => setActiveTab('admin')}
-                    className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                      activeTab === 'admin' 
-                        ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.18)]' 
-                        : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
-                    }`}
-                  >
-                    <ShieldCheck className="w-5 h-5" />
-                  </button>
-                  {activeTab === 'admin' && (
-                    <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-[4.5px] h-7 bg-[#7c3aed] rounded-full shadow-[0_0_8px_rgba(124,58,237,0.3)]" />
-                  )}
-                  <div className="absolute left-14 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
-                    系统后台
-                  </div>
-                </div>
-              )}
-
-              {(isLeader || isAdmin || isTeamMember) && (
-                <div className="relative group flex items-center justify-center">
-                  <button
-                    onClick={() => setActiveTab('leader')}
-                    className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                      activeTab === 'leader' 
-                        ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.18)]' 
-                        : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
-                    }`}
-                  >
-                    <LayoutDashboard className="w-5 h-5" />
-                  </button>
-                  {activeTab === 'leader' && (
-                    <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-[4.5px] h-7 bg-[#7c3aed] rounded-full shadow-[0_0_8px_rgba(124,58,237,0.3)]" />
-                  )}
-                  <div className="absolute left-14 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
-                    团队管理
-                  </div>
-                </div>
-              )}
-
-              {/* Divider */}
-              <div className="w-6 h-[1px] bg-[#e3dbf8]/80 my-0.5" />
-
-              {/* User Profile */}
-              <div className="relative group flex items-center justify-center">
-                <button
-                  onClick={() => setActiveTab('profile')}
-                  className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                    activeTab === 'profile' 
-                      ? 'bg-white text-[#7c3aed] shadow-[0_4px_12px_rgba(124,58,237,0.18)]' 
-                      : 'text-[#8f95a3] hover:text-[#7c3aed] hover:bg-[#eae6f5]/50'
-                  }`}
-                >
-                  <User className="w-5 h-5" />
-                </button>
-                {activeTab === 'profile' && (
-                  <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-[4.5px] h-7 bg-[#7c3aed] rounded-full shadow-[0_0_8px_rgba(124,58,237,0.3)]" />
-                )}
-
-                {/* Advanced Profile Hover Card */}
-                <div className="absolute left-14 bottom-0 w-56 bg-white border border-[#e3dbf8] rounded-xl p-4 opacity-0 pointer-events-none group-hover:opacity-100 transition-all duration-200 shadow-2xl z-50 flex flex-col gap-3">
-                  <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-lg bg-[#f5f2fd] flex items-center justify-center border border-[#e3dbf8]/60">
-                      <User className="w-5 h-5 text-[#7c3aed]" />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-sm font-bold text-slate-800 truncate">{user?.username || '未登录'}</span>
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                        {user?.role === 'admin' ? '系统管理员' : user?.role === 'leader' ? '团队组长' : '正式会员'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {user && (
-                    <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-2.5">
-                      {user.teamInfo?.teamPoints !== undefined && (
-                        <div className="flex items-center justify-between text-xs py-1 px-2 bg-amber-50 border border-amber-100 rounded-md">
-                          <span className="text-amber-600 font-medium flex items-center gap-1.5">
-                            <Users className="w-3 h-3" /> 团队积分
-                          </span>
-                          <span className="text-amber-600 font-black">{user.teamInfo.teamPoints}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between text-xs py-1 px-2 bg-indigo-50 border border-indigo-100 rounded-md">
-                        <span className="text-indigo-600 font-medium flex items-center gap-1.5">
-                          <Zap className="w-3 h-3 fill-indigo-500/10" /> 个人积分
-                        </span>
-                        <span className="text-indigo-600 font-black">{user.points || 0}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Divider */}
-              <div className="w-6 h-[1px] bg-[#e3dbf8]/80 my-0.5" />
-
-              {/* Logout */}
-              {onLogout && (
-                <div className="relative group flex items-center justify-center">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onLogout();
-                    }}
-                    className="w-11 h-11 rounded-xl flex items-center justify-center text-[#8f95a3] hover:text-red-500 hover:bg-red-50 transition-all duration-300 cursor-pointer"
-                    title="安全退出"
-                  >
-                    <LogOut className="w-5 h-5 transition-transform duration-300 hover:scale-105" />
-                  </button>
-                  <div className="absolute left-14 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-white border border-[#e3dbf8] text-slate-700 text-xs font-bold rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 shadow-lg whitespace-nowrap z-50">
-                    安全退出
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </aside>
-      )}
+      </>
+    )}
 
       {/* Main Content Area */}
       <div className={`flex-1 flex flex-col min-w-0 ${(!isGuest && activeTab !== 'space') ? 'sm:pl-24 pl-20' : ''}`}>

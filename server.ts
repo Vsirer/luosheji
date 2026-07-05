@@ -103,14 +103,6 @@ const DEFAULT_API_CONFIG = {
     accessKeyId: '',
     secretKey: ''
   },
-  videoOmni: {
-    provider: 'Third Party',
-    endpoint: 'https://api.vectorengine.ai',
-    path: '',
-    model: 'omni-flash',
-    apiKey: '',
-    protocolType: 'openai'
-  },
   gptImage: {
     provider: 'Third Party',
     endpoint: 'https://api.vectorengine.ai',
@@ -1383,9 +1375,6 @@ async function startServer() {
         }
         
         if (normalized.includes('video') || normalized.includes('视频') || type === 'video' || modelStr.includes('video') || modelStr.includes('seedance')) {
-          if (normalized.includes('omni') || modelStr.includes('omni')) {
-            return 'Omni/多模态视频';
-          }
           if (normalized.includes('mini') || modelStr.includes('mini')) {
             return 'RH-SD2.0mini/多模态视频';
           }
@@ -2847,7 +2836,7 @@ async function startServer() {
       // --- AI Collaboration Logic ---
       console.log(`[GroupChat] Message from user ${req.user.id} in group ${groupId}. Content: ${content.substring(0, 50)}...`);
       try {
-        const enableAiCollaboration = true;
+        const enableAiCollaboration = false;
         if (enableAiCollaboration) {
           // Get group context/objective and involved agents
           const [groupData]: any = await db.query("SELECT objective, name, agent_ids FROM group_chats WHERE id = ?", [groupId]);
@@ -3915,6 +3904,19 @@ ${chatHistory}
         // Test by GET request to tasks endpoint
         testUrl = endpoint.replace(/\/$/, '');
         headers['Authorization'] = `Bearer ${apiKey}`;
+      } else if (protocolType === 'claude' || protocolType === 'anthropic' || endpoint.includes('/v1/messages') || endpoint.includes('/messages')) {
+        let cleanBase = endpoint.replace(/\/$/, '');
+        if (cleanBase.includes('/v1/messages') || cleanBase.includes('/messages')) {
+          try {
+            const urlObj = new URL(cleanBase);
+            cleanBase = urlObj.origin;
+          } catch (e) {}
+        }
+        cleanBase = cleanBase.replace(/\/v1$/, '');
+        testUrl = `${cleanBase}/v1/models`;
+        headers['x-api-key'] = apiKey;
+        headers['anthropic-version'] = '2023-06-01';
+        headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
       } else {
         // Third Party / OpenAI Protocol - Test by listing models
         let cleanBase = endpoint.replace(/\/$/, '');

@@ -38,10 +38,9 @@ export class VideoAgent extends BaseAgent {
     const finalPrompt = options.customDescription ? `${options.customDescription}\n\nUser Request: ${prompt}` : prompt;
     const apiType = options.model === 'seedance-mini' ? 'videoSeedanceMini' :
                     options.model === 'seedance2.0' || options.model === 'seedance2.5' || options.model === 'doubao-seedance-2-0-260128' ? 'videoSeedance' : 
-                    options.model === 'omni-flash' ? 'videoOmni' :
                     (options.model === 'veo_3_1-fast' || options.model === 'veo-3.1-fast-generate-preview') ? 'videoVeoFast' : 'video';
     const apiConfig = config ? config[apiType as keyof Config] as ApiConfig : null;
-    const isVectorEngine = apiConfig?.endpoint?.includes('vectorengine.ai') || apiType === 'videoOmni';
+    const isVectorEngine = apiConfig?.endpoint?.includes('vectorengine.ai');
     const isArk = apiConfig?.endpoint?.includes('volces.com') || apiType === 'videoSeedance' || apiType === 'videoSeedanceMini';
     const isDefault = apiConfig?.endpoint?.includes('generativelanguage.googleapis.com');
 
@@ -279,115 +278,6 @@ export class VideoAgent extends BaseAgent {
       }
     }
 
-    if (options.model === 'omni-flash' || (options.model && options.model.toLowerCase().includes('omni'))) {
-      const processedImages: string[] = [];
-
-      // Helper to process image to URL / dataURI
-      const toUri = async (img?: { imageBytes: string, mimeType: string }) => {
-        if (!img || !img.imageBytes) return null;
-        return await ensureBase64(img) || null;
-      };
-
-      // Add options.image (start frame)
-      const startUri = await toUri(options.image);
-      if (startUri) {
-        processedImages.push(startUri);
-      }
-
-      // Add options.lastFrame (end frame)
-      const endUri = await toUri(options.lastFrame);
-      if (endUri) {
-        processedImages.push(endUri);
-      }
-
-      // Add referenceImages (if any)
-      if (options.referenceImages) {
-        for (const ref of options.referenceImages) {
-          const uri = await toUri(ref.image);
-          if (uri && !processedImages.includes(uri)) {
-            processedImages.push(uri);
-          }
-        }
-      }
-
-      // Add referenceAssets (images only)
-      if (options.referenceAssets) {
-        for (const asset of options.referenceAssets) {
-          if (asset.type === 'image' && asset.data) {
-            const hasBase64Sfx = asset.data.includes(',');
-            const dataOnly = hasBase64Sfx ? asset.data.split(',')[1] : asset.data;
-            const isUrl = asset.data.startsWith('http') || asset.data.startsWith('blob:');
-            const uri = isUrl
-              ? await urlToBase64(asset.data).then(r => `data:${r.mimeType};base64,${r.base64}`).catch(() => asset.data)
-              : `data:${asset.mimeType || 'image/png'};base64,${dataOnly}`;
-            if (uri && !processedImages.includes(uri)) {
-              processedImages.push(uri);
-            }
-          }
-        }
-      }
-
-      // Determine correct type: 1=文生视频, 2=首尾帧, 3=垫图参考, 4=编辑
-      let typeVal = 1;
-      const modeTag = options.videoMode || '';
-      if (modeTag === 'type-1' || modeTag === 'all-around' || modeTag === 'text-to-video') {
-        typeVal = 1;
-      } else if (modeTag === 'type-2' || modeTag === 'start-end') {
-        typeVal = 2;
-      } else if (modeTag === 'type-3' || modeTag === 'image-ref') {
-        typeVal = 3;
-      } else if (modeTag === 'type-4' || modeTag === 'edit') {
-        typeVal = 4;
-      } else {
-        // Auto-detect based on inputs
-        if (processedImages.length >= 2) {
-          typeVal = 2; // 首尾帧
-        } else if (processedImages.length === 1) {
-          typeVal = 3; // 垫图参考
-        }
-      }
-
-      const body: any = {
-        prompt: finalPrompt,
-        model: options.model,
-        duration: String(options.duration || '8'),
-        seconds: String(options.duration || '8'),
-        aspectRatio: options.aspectRatio || '16:9',
-        aspect_ratio: options.aspectRatio || '16:9',
-        type: typeVal,
-        images: processedImages.length > 0 ? processedImages : undefined
-      };
-
-      // Handle resolution / upsample / sample
-      const quality = options.resolution || '720p';
-      if (quality === '1080p' || quality === 'native1080p') {
-        body.enable_sample = true;
-        body.enable_upsample = true;
-      }
-
-      // Some custom reference inputs if type-4
-      if (typeVal === 4 && options.referenceAssets) {
-        const videoAsset = options.referenceAssets.find(a => a.type === 'video');
-        if (videoAsset && videoAsset.data) {
-          const isUrl = videoAsset.data.startsWith('http') || videoAsset.data.startsWith('blob:');
-          body.input_reference = isUrl
-            ? await urlToBase64(videoAsset.data).then(r => `data:${r.mimeType};base64,${r.base64}`).catch(() => videoAsset.data)
-            : videoAsset.data;
-        }
-      }
-
-      try {
-        let operation = await this.callApi('videoOmni', 'generateVideos', body, config);
-        if (operation && !operation.operationId) {
-          operation.operationId = operation.name || operation.id || operation.task_id;
-        }
-        return operation;
-      } catch (e) {
-        console.error("Omni-Flash Video Generation failed:", e);
-        throw e;
-      }
-    }
-
     // Default Google structure
     const googleRefImages = options.referenceImages || [];
     if (options.referenceAssets) {
@@ -437,7 +327,6 @@ export class VideoAgent extends BaseAgent {
     // Implementation for polling video generation status
     const apiType = model === 'seedance-mini' ? 'videoSeedanceMini' :
                     model === 'seedance2.0' || model === 'seedance2.5' || model === 'doubao-seedance-2-0-260128' ? 'videoSeedance' : 
-                    model === 'omni-flash' ? 'videoOmni' :
                     (model === 'veo_3_1-fast' || model === 'veo-3.1-fast-generate-preview') ? 'videoVeoFast' : 'video';
     const apiConfig = config ? config[apiType as keyof Config] as ApiConfig : null;
     if (!apiConfig) throw new Error(`未找到 ${apiType} 配置`);
@@ -446,7 +335,7 @@ export class VideoAgent extends BaseAgent {
     const baseUrlRaw = apiConfig.endpoint.replace(/\/$/, '');
     const baseUrl = baseUrlRaw.replace(/\/v1$/, '').replace(/\/v1beta$/, '');
     const isDefault = apiConfig.endpoint.includes('generativelanguage.googleapis.com');
-    const isVectorEngine = apiConfig.endpoint.includes('vectorengine.ai') || apiType === 'videoOmni';
+    const isVectorEngine = apiConfig.endpoint.includes('vectorengine.ai');
     const isArk = apiConfig.endpoint.includes('volces.com') || apiType === 'videoSeedance' || apiType === 'videoSeedanceMini';
     
     if (isArk) {

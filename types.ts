@@ -162,7 +162,7 @@ export interface ApiConfig {
   path: string;
   model: string;
   apiKey: string;
-  protocolType?: 'google' | 'openai'; // 'google' for Official Gemini format, 'openai' for Proxy format
+  protocolType?: 'google' | 'openai' | 'claude' | 'anthropic'; // 'google' for Official Gemini format, 'openai' for Proxy format, 'claude' for Claude Messages format
   project?: string; // Volcengine Project
   accessKeyId?: string; // Volcengine AK
   secretKey?: string; // Volcengine SK
@@ -175,12 +175,11 @@ export interface Config {
   videoVeoFast: ApiConfig;
   videoSeedance: ApiConfig;
   videoSeedanceMini: ApiConfig;
-  videoOmni: ApiConfig;
   gptImage: ApiConfig;
   claudeSonnet: ApiConfig;
 }
 
-export type ApiConfigKey = 'script' | 'image' | 'video' | 'videoVeoFast' | 'videoSeedance' | 'videoSeedanceMini' | 'videoOmni' | 'gptImage' | 'claudeSonnet';
+export type ApiConfigKey = 'script' | 'image' | 'video' | 'videoVeoFast' | 'videoSeedance' | 'videoSeedanceMini' | 'gptImage' | 'claudeSonnet';
 
 export interface TeamMember {
   id: number;

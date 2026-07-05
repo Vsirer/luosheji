@@ -29,8 +29,13 @@ export const shotPromptSkill: AiSkill = {
   customOptions: [
     {
       id: "segments",
-      name: "篇幅",
+      name: "段数",
       choices: ["4段", "5段", "6段", "7段", "8段", "9段", "10段", "15段", "20段", "25段", "30段", "随机段数"]
+    },
+    {
+      id: "duration",
+      name: "时长",
+      choices: ["15s", "4-15s随机"]
     },
     {
       id: "visualStyle",

@@ -9,9 +9,8 @@ lerna-debug.log*
 
 node_modules
 *.local
-build/
-out/
 # Editor directories and files
+database.sqlite
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -21,3 +20,7 @@ out/
 *.njsproj
 *.sln
 *.sw?
+
+# Explicitly un-ignore dist directory to ensure all compiled assets are fully preserved
+!dist
+!dist/**

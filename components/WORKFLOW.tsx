@@ -74,6 +74,7 @@ import {
   Workflow,
   Cpu,
   Wrench,
+  ChevronsRight,
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
@@ -102,7 +103,10 @@ import {
 } from "../constants";
 
 // Set worker source for pdfjs
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+const safePdfjsLib = (pdfjsLib as any).GlobalWorkerOptions ? (pdfjsLib as any) : ((pdfjsLib as any).default || pdfjsLib);
+if (typeof window !== 'undefined' && safePdfjsLib && safePdfjsLib.GlobalWorkerOptions) {
+  safePdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${safePdfjsLib.version || '3.11.174'}/pdf.worker.min.js`;
+}
 import {
   pipelineService,
   IMAGE_AGENT_SYSTEM_INSTRUCTION,
@@ -131,6 +135,8 @@ import { Codex } from "./Codex";
 import { PromptWithMentions } from "./PromptWithMentions";
 import { GENRES, VISUAL_STYLES } from "../constants";
 import { HistoryCard } from "./HistoryCard";
+import { InlineGenerationConsole } from "./InlineGenerationConsole";
+import { InlineScriptConsole } from "./InlineScriptConsole";
 import {
   formatAssetLine,
   getFriendlyNodeLabel,
@@ -145,6 +151,19 @@ import {
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+function findAssetByLabel(assets: any[], searchLabel: string) {
+  const normalize = (lbl: string): string => {
+    if (!lbl) return "";
+    return lbl
+      .replace(/_/g, "")
+      .replace(/图片/g, "图")
+      .toLowerCase()
+      .trim();
+  };
+  const target = normalize(searchLabel);
+  return assets.find(a => normalize(a.label) === target);
 }
 
 interface SmartImageGeneratorProps {
@@ -437,12 +456,6 @@ const VIDEO_MODES: Record<string, { label: string; value: string }[]> = {
     { label: "全能参考", value: "all-around" },
     { label: "首尾帧", value: "start-end" },
   ],
-  "omni-flash": [
-    { label: "文生视频", value: "type-1" },
-    { label: "首尾帧", value: "type-2" },
-    { label: "垫图参考", value: "type-3" },
-    { label: "视频编辑", value: "type-4" },
-  ],
 };
 
 const VIDEO_MODEL_CONFIGS: Record<
@@ -506,12 +519,96 @@ const VIDEO_MODEL_CONFIGS: Record<
       "15",
     ],
   },
-  "omni-flash": {
-    resolutions: ["720p"],
-    aspectRatios: ["16:9", "9:16"],
-    durations: ["4", "5", "6", "7", "8", "9", "10"],
-  },
 };
+
+const MagneticModeButton = ({ 
+  interactionMode, 
+  setInteractionMode, 
+  setSelectedIds 
+}: { 
+  interactionMode: "pan" | "select"; 
+  setInteractionMode: (m: "pan" | "select") => void;
+  setSelectedIds: (ids: any[]) => void;
+}) => {
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = React.useState({ x: 0, y: 0 });
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  React.useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!btnRef.current) return;
+      const rect = btnRef.current.getBoundingClientRect();
+      const btnCenterX = rect.left + rect.width / 2;
+      const btnCenterY = rect.top + rect.height / 2;
+
+      const dx = e.clientX - btnCenterX;
+      const dy = e.clientY - btnCenterY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      const snapRadius = 70; // Attraction detection radius (pixels)
+
+      if (distance < snapRadius) {
+        setIsHovered(true);
+        // Magnetic snap: move button toward the cursor
+        setPosition({
+          x: dx * 0.35,
+          y: dy * 0.35,
+        });
+      } else {
+        setIsHovered(false);
+        setPosition({ x: 0, y: 0 });
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, []);
+
+  const isSelectMode = interactionMode === "select";
+
+  return (
+    <button
+      ref={btnRef}
+      style={{
+        transform: `translate(${position.x}px, ${position.y}px)`,
+        transition: isHovered ? "transform 0.08s cubic-bezier(0.25, 1, 0.5, 1)" : "transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        const nextMode = isSelectMode ? "pan" : "select";
+        setInteractionMode(nextMode);
+        if (!isSelectMode) {
+          setSelectedIds([]);
+        }
+      }}
+      className={cn(
+        "w-8 h-8 rounded-xl flex items-center justify-center shadow-lg border pointer-events-auto transition-colors duration-200",
+        isSelectMode
+          ? "bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-700"
+          : "bg-white text-slate-700 border-slate-200/80 hover:bg-slate-50"
+      )}
+      title={isSelectMode ? "当前：多选模式" : "当前：拖拽模式"}
+    >
+      <div className="relative w-4 h-4">
+        <div className={cn(
+          "absolute inset-0 transition-all duration-300 transform",
+          isSelectMode ? "opacity-0 rotate-45 scale-50" : "opacity-100 rotate-0 scale-100"
+        )}>
+          <Hand className="w-4 h-4" />
+        </div>
+        <div className={cn(
+          "absolute inset-0 transition-all duration-300 transform",
+          isSelectMode ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-45 scale-50"
+        )}>
+          <MousePointer className="w-4 h-4" />
+        </div>
+      </div>
+    </button>
+  );
+};
+
 
 export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   config,
@@ -536,8 +633,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   isCollaborationTabActive = false,
 }) => {
   const [collabWidth, setCollabWidth] = useState(500);
-  const [isCollabCollapsed, setIsCollabCollapsed] = useState(true);
-  const [isInputCardMinimized, setIsInputCardMinimized] = useState(false);
+  const [isCollabCollapsed, setIsCollabCollapsed] = useState(false);
+  const [isInputCardMinimized, setIsInputCardMinimized] = useState(true);
   const [localForwardMaterial, setLocalForwardMaterial] = useState<{ url?: string; name: string; type: string; content?: string } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [collabHasUnread, setCollabHasUnread] = useState(false);
@@ -597,6 +694,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   const collabSendFnRef = React.useRef<(() => Promise<void>) | null>(null);
   const collabAppendMessageFnRef = React.useRef<((msg: any) => void) | null>(null);
   const collabInsertDividerFnRef = React.useRef<(() => void) | null>(null);
+  const collabClearHistoryFnRef = React.useRef<(() => void) | null>(null);
   const [isCollabModeActive, setIsCollabModeActive] = useState(false);
   const [collabGroups, setCollabGroups] = useState<any[]>([]);
   const [collabAiSkillRaw, setCollabAiSkillRaw] = useState<string>("general");
@@ -675,6 +773,24 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       lastCollabGroupTargetIdRef.current = collabChatTargetId;
     }
   }, [collabChatTargetId]);
+
+  React.useEffect(() => {
+    const handleToggleConsole = () => {
+      setIsInputCardMinimized(false);
+      setIsCollabModeActive(true);
+      setIsCollabCollapsed(false);
+      setCollabChatTargetId('xiaoluo_ai');
+      setCollabAiSkillRaw('general');
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 150);
+    };
+
+    window.addEventListener("toggle-ai-intent-console", handleToggleConsole);
+    return () => {
+      window.removeEventListener("toggle-ai-intent-console", handleToggleConsole);
+    };
+  }, []);
 
   const getFallbackCollabGroupChatTargetId = () => {
     if (lastCollabGroupTargetIdRef.current && lastCollabGroupTargetIdRef.current !== 'team' && lastCollabGroupTargetIdRef.current !== 'ceo') {
@@ -1058,7 +1174,22 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   // Sync sidebar open state to localStorage
   useEffect(() => {
     localStorage.setItem("aistudio_sidebar_open", String(isSidebarOpen));
+    window.dispatchEvent(new CustomEvent("sync-canvas-sidebar-open", {
+      detail: { open: isSidebarOpen }
+    }));
   }, [isSidebarOpen]);
+
+  useEffect(() => {
+    const handleToggle = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail && typeof customEvent.detail.open === 'boolean') {
+        setIsSidebarOpen(customEvent.detail.open);
+      }
+    };
+    window.addEventListener('change-canvas-sidebar-open', handleToggle);
+    return () => window.removeEventListener('change-canvas-sidebar-open', handleToggle);
+  }, []);
+
 
   useEffect(() => {
     const handleSwitchToCanvas = (e: Event) => {
@@ -1446,6 +1577,15 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [activeCustomSkillIds, setActiveCustomSkillIds] = useState<string[]>([]);
 
+  const getPluginCategory = (id: string): 'text' | 'image' | 'video' => {
+    const saved = localStorage.getItem(`plugin_category_${id}`);
+    if (saved === 'text' || saved === 'image' || saved === 'video') {
+      return saved;
+    }
+    if (id === 'camera-control') return 'video';
+    return 'image';
+  };
+
   const fetchCustomModels = async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
@@ -1537,7 +1677,6 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   const [isDraggingCard, setIsDraggingCard] = useState(false);
   const [isFileDragging, setIsFileDragging] = useState(false);
   const [isCanvasDragging, setIsCanvasDragging] = useState(false);
-  const [isPromptMaximized, setIsPromptMaximized] = useState(false);
   const [hoveredMapItem, setHoveredMapItem] = useState<HistoryItem | null>(
     null,
   );
@@ -1568,6 +1707,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   const [arrowDragCurrentPos, setArrowDragCurrentPos] = useState<{ x: number; y: number } | null>(null);
   const [arrowDroppedPos, setArrowDroppedPos] = useState<{ x: number; y: number } | null>(null);
   const [dockedItemId, setDockedItemId] = useState<string | null>(null);
+  const [canvasMousePos, setCanvasMousePos] = useState<{ x: number; y: number } | null>(null);
   const panelDragStartRef = useRef({ mouseX: 0, mouseY: 0, startOffsetX: 0, startOffsetY: 0 });
   const lastSyncedDraftIdRef = useRef<string | null>(null);
   const arrowDragStartScreenPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -1736,8 +1876,12 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     const canvasElement = document.getElementById("infinite-canvas-grid");
     if (!canvasElement || !selectionRightPanelPosition) return;
 
-    const startX = selectionRightPanelPosition.x + panelDragOffset.x;
-    const startY = selectionRightPanelPosition.y + panelDragOffset.y;
+    const magPos = getMagneticPosition() || {
+      x: selectionRightPanelPosition.x + panelDragOffset.x,
+      y: selectionRightPanelPosition.y + panelDragOffset.y,
+    };
+    const startX = magPos.x;
+    const startY = magPos.y;
 
     setIsDraggingArrow(true);
     setArrowDragStartPos({ x: startX, y: startY });
@@ -1957,6 +2101,29 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     }
   };
   const [interactionMode, setInteractionMode] = useState<"pan" | "select">("pan");
+
+  useEffect(() => {
+    const handleChange = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail && customEvent.detail.mode) {
+        setInteractionMode(customEvent.detail.mode);
+        if (customEvent.detail.mode === "select") {
+          setError("多选框选模式已开启，在画布空白处拖拽即可批量多选！");
+          setIsCriticalError(false);
+        } else {
+          setSelectedIds([]);
+        }
+      }
+    };
+    window.addEventListener('change-interaction-mode', handleChange);
+    return () => window.removeEventListener('change-interaction-mode', handleChange);
+  }, [setError, setSelectedIds, setIsCriticalError]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('sync-interaction-mode', {
+      detail: { mode: interactionMode }
+    }));
+  }, [interactionMode]);
   const [hoveredContextItem, setHoveredContextItem] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectStart, setSelectStart] = useState<{ x: number; y: number } | null>(null);
@@ -2092,6 +2259,32 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     localStorage.setItem("layoutMode", layoutMode);
   }, [layoutMode]);
 
+  // Sync layoutMode state to Layout
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("sync-canvas-layout-mode", {
+      detail: { mode: layoutMode }
+    }));
+  }, [layoutMode]);
+
+  useEffect(() => {
+    const handleLayoutChange = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail && customEvent.detail.mode) {
+        const mode = customEvent.detail.mode;
+        setLayoutMode(mode);
+        if (mode === "mindmap") {
+          autoLayoutMindMap(true, false);
+        } else if (mode === "bento") {
+          autoLayoutBentoGrid(true);
+        } else if (mode === "semi_auto") {
+          autoLayoutSemiAuto(true);
+        }
+      }
+    };
+    window.addEventListener('change-canvas-layout-mode', handleLayoutChange);
+    return () => window.removeEventListener('change-canvas-layout-mode', handleLayoutChange);
+  }, [layoutMode]);
+
 
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -2102,12 +2295,54 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     arrowDragSourceIds?: string[];
   } | null>(null);
 
+  const [cardContextMenu, setCardContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    item: HistoryItem;
+  } | null>(null);
 
+  const handleCardContextMenu = (e: React.MouseEvent, item: HistoryItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCardContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      item,
+    });
+  };
+
+  const handleDuplicateCard = (item: HistoryItem) => {
+    const newId = Math.random().toString(36).substring(2, 9);
+    const offset = 40;
+    const newPosition = {
+      x: (item.position?.x || 0) + offset,
+      y: (item.position?.y || 0) + offset,
+      customX: item.position?.customX !== undefined ? item.position.customX + offset : undefined,
+      customY: item.position?.customY !== undefined ? item.position.customY + offset : undefined,
+      bento: item.position?.bento ? { x: item.position.bento.x + offset, y: item.position.bento.y + offset } : undefined,
+      mindmap: item.position?.mindmap ? { x: item.position.mindmap.x + offset, y: item.position.mindmap.y + offset } : undefined,
+      semi_auto: item.position?.semi_auto ? { x: item.position.semi_auto.x + offset, y: item.position.semi_auto.y + offset } : undefined,
+    };
+
+    const duplicatedItem: HistoryItem = {
+      ...item,
+      id: newId,
+      position: newPosition,
+      timestamp: Date.now(),
+    };
+
+    setHistory((prev) => [duplicatedItem, ...prev]);
+    syncToCloud(duplicatedItem);
+    setCardContextMenu(null);
+  };
 
   useEffect(() => {
     const handleDismissContextMenu = () => {
       if (isArrowDragJustEndedRef.current) return;
       setContextMenu(null);
+      setCardContextMenu(null);
     };
     window.addEventListener("click", handleDismissContextMenu);
     return () => window.removeEventListener("click", handleDismissContextMenu);
@@ -2132,8 +2367,11 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       // 2. Check if we clicked inside the action bar or its dropdowns
       const isInsideActionBar = target.closest(".action-bar-click-target");
 
-      // If the click is neither inside the result card nor the action bar / menus, we dismiss selection
-      if (!isInsideCard && !isInsideActionBar) {
+      // 3. Check if we clicked inside any consoles or panels that shouldn't dismiss the selection
+      const isInsideConsole = target.closest(".no-canvas-intercept");
+
+      // If the click is neither inside the result card nor the action bar / menus nor the inline consoles, we dismiss selection
+      if (!isInsideCard && !isInsideActionBar && !isInsideConsole) {
         setSelectedHistoryId(null);
         setSelectedIds([]);
       }
@@ -2566,8 +2804,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       const singleItem = displayHistory.find((item) => item.id === selectedIds[0]);
       if (singleItem && singleItem.position) {
         const spec = getActualCanvasCardSizeAndPort(singleItem);
-        const portX = singleItem.status === "draft_new" ? (spec.width + 15) : spec.portX;
-        const portY = singleItem.status === "draft_new" ? 170 : spec.portY;
+        const portX = spec.portX;
+        const portY = spec.portY;
         return {
           x: (singleItem.position.x || 0) + portX,
           y: (singleItem.position.y || 0) + portY,
@@ -2591,6 +2829,59 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     const targetY = selectionBounds.minY + selectionBounds.height / 2;
     return { x: targetX, y: targetY };
   }, [selectionBounds, lastMouseUpCanvasPos, selectedIds, displayHistory]);
+
+  useEffect(() => {
+    if (selectedIds.length === 0 || layoutMode === "bento" || layoutMode === "semi_auto") {
+      setCanvasMousePos(null);
+      return;
+    }
+
+    const handlePointerMoveGlobal = (e: PointerEvent) => {
+      const grid = document.getElementById("infinite-canvas-grid");
+      if (!grid) return;
+      const rect = grid.getBoundingClientRect();
+      const scale = scaleRef.current || 1;
+      const canvasX = (e.clientX - rect.left) / scale;
+      const canvasY = (e.clientY - rect.top) / scale;
+      setCanvasMousePos({ x: canvasX, y: canvasY });
+    };
+
+    window.addEventListener("pointermove", handlePointerMoveGlobal);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMoveGlobal);
+    };
+  }, [selectedIds, layoutMode]);
+
+  const getMagneticPosition = React.useCallback(() => {
+    if (!selectionRightPanelPosition) return null;
+    const baseBtnX = selectionRightPanelPosition.x + panelDragOffset.x;
+    const baseBtnY = selectionRightPanelPosition.y + panelDragOffset.y;
+    
+    if (isDraggingArrow || !canvasMousePos) {
+      return { x: baseBtnX, y: baseBtnY };
+    }
+    
+    const dx = canvasMousePos.x - baseBtnX;
+    const dy = canvasMousePos.y - baseBtnY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    const snapThreshold = 35;  // Under 35px, it snaps 100% to the mouse
+    const magneticRange = 90;  // Starts pulling from 90px away
+    
+    if (dist <= snapThreshold) {
+      return { x: canvasMousePos.x, y: canvasMousePos.y };
+    } else if (dist < magneticRange) {
+      // Smooth transition from base position to snapping position
+      const t = (dist - snapThreshold) / (magneticRange - snapThreshold); // 0 to 1
+      const pullStrength = 1 - Math.sin((t * Math.PI) / 2); // 1 to 0 smooth cosine curve
+      return {
+        x: baseBtnX + dx * pullStrength,
+        y: baseBtnY + dy * pullStrength,
+      };
+    }
+    
+    return { x: baseBtnX, y: baseBtnY };
+  }, [selectionRightPanelPosition, panelDragOffset, isDraggingArrow, canvasMousePos]);
 
   const mapBounds = React.useMemo(() => {
     if (itemsOnCanvas.length === 0) return null;
@@ -2631,7 +2922,6 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
 
   // Mention system state
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const maximizedTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [mentionSearch, setMentionSearch] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionCursorPos, setMentionCursorPos] = useState({ top: 0, left: 0 });
@@ -3194,6 +3484,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   const [showDirectorCombinedMenu, setShowDirectorCombinedMenu] =
     useState(false);
   const [showDirectorSegmentsMenu, setShowDirectorSegmentsMenu] = useState(false);
+  const [showDirectorDurationMenu, setShowDirectorDurationMenu] = useState(false);
   const [showDirectorVisualStyleMenu, setShowDirectorVisualStyleMenu] = useState(false);
   const [showDirectorStyleMenu, setShowDirectorStyleMenu] = useState(false);
 
@@ -3449,6 +3740,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   }, [scriptConfig.activeSubTab, mode, scriptConfig.referenceFile]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasUploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetPositionRef = useRef<{ x: number; y: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const transformComponentRef = useRef<any>(null);
   const canvasViewportRef = useRef<HTMLDivElement>(null);
@@ -3611,7 +3904,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       content = result.value;
     } else if (file.name.endsWith(".pdf")) {
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await safePdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let fullText = "";
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -3775,6 +4068,9 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   };
 
   const addFiles = async (files: FileList | File[]) => {
+    const specifiedPosition = uploadTargetPositionRef.current;
+    uploadTargetPositionRef.current = null;
+
     if (isCollabModeActive) {
       if (collabAddFilesFnRef.current) {
         collabAddFilesFnRef.current(files);
@@ -3812,7 +4108,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                 thumbnail,
               },
             }));
-            saveUploadedFileToHistory(file, data, "video");
+            const videoPos = specifiedPosition ? findUnoccupiedPosition(specifiedPosition.x, specifiedPosition.y, history) : undefined;
+            saveUploadedFileToHistory(file, data, "video", undefined, videoPos);
           };
           reader.readAsDataURL(file);
         } catch (err) {
@@ -3836,7 +4133,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
             prompt: content,
             referenceFile: { name: file.name, data: content, type: "document" },
           }));
-          const safePos = getFreeCanvasFlowPosition(history);
+          const safePos = specifiedPosition ? findUnoccupiedPosition(specifiedPosition.x, specifiedPosition.y, history) : getFreeCanvasFlowPosition(history);
           await saveUploadedFileToHistory(file, content, "gen_script", undefined, safePos);
         } catch (err: any) {
           setError(err.message || "剧本解析失败");
@@ -3874,7 +4171,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                 type: "document",
               },
             }));
-            const safePos = getFreeCanvasFlowPosition(history);
+            const safePos = specifiedPosition ? findUnoccupiedPosition(specifiedPosition.x, specifiedPosition.y, history) : getFreeCanvasFlowPosition(history);
             await saveUploadedFileToHistory(file, content, "gen_script", undefined, safePos);
           })
           .catch((err) => {
@@ -3903,6 +4200,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
         let pendingAudios = 0;
         let pendingTotal = 0;
 
+        let processedCount = 0;
         for (const file of filesToProcess) {
           const type = file.type.startsWith("image/")
             ? "image"
@@ -3960,6 +4258,9 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
           else if (type === "video") pendingVideos++;
           else if (type === "audio") pendingAudios++;
 
+          const fileIndex = processedCount;
+          processedCount++;
+
           const reader = new FileReader();
           reader.onload = async (event) => {
             const data = event.target?.result as string;
@@ -4000,7 +4301,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                 },
               ],
             }));
-            saveUploadedFileToHistory(file, data, type!, uploadId);
+            const filePos = specifiedPosition ? findUnoccupiedPosition(specifiedPosition.x + fileIndex * 40, specifiedPosition.y + fileIndex * 40, history) : undefined;
+            saveUploadedFileToHistory(file, data, type!, uploadId, filePos);
           };
           reader.readAsDataURL(file);
         }
@@ -4027,7 +4329,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
             image: { data, mimeType: file.type, historyId: uploadId },
           };
         });
-        saveUploadedFileToHistory(file, data, "image", uploadId);
+        const filePos = specifiedPosition ? findUnoccupiedPosition(specifiedPosition.x, specifiedPosition.y, history) : undefined;
+        saveUploadedFileToHistory(file, data, "image", uploadId, filePos);
       };
       reader.readAsDataURL(file);
       return;
@@ -4044,7 +4347,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
 
     const filesToProcess = Array.from(files).slice(0, remaining);
 
-    filesToProcess.forEach((file: File) => {
+    filesToProcess.forEach((file: File, idx: number) => {
       if (!file.type.startsWith("image/")) return;
       const uploadId = `upl_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
       const reader = new FileReader();
@@ -4072,7 +4375,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
             ],
           };
         });
-        saveUploadedFileToHistory(file, data, "image", uploadId);
+        const filePos = specifiedPosition ? findUnoccupiedPosition(specifiedPosition.x + idx * 40, specifiedPosition.y + idx * 40, history) : undefined;
+        saveUploadedFileToHistory(file, data, "image", uploadId, filePos);
       };
       reader.readAsDataURL(file);
     });
@@ -4093,6 +4397,172 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) addFiles(e.target.files);
+  };
+
+  const addCanvasFiles = async (filesList: FileList | File[]) => {
+    const files = Array.from(filesList);
+    const specifiedPosition = uploadTargetPositionRef.current || getViewportCenterPosition();
+    uploadTargetPositionRef.current = null;
+
+    let tempHistory = [...history];
+    const newItemsToAppend: HistoryItem[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      let type: "image" | "video" | "audio" | "gen_script" | null = null;
+      if (file.type.startsWith("image/")) {
+        type = "image";
+      } else if (file.type.startsWith("video/")) {
+        type = "video";
+      } else if (file.type.startsWith("audio/")) {
+        type = "audio";
+      } else if (
+        file.type === "text/plain" ||
+        file.type === "application/pdf" ||
+        file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        file.type === "application/msword" ||
+        file.type === "application/vnd.ms-excel" ||
+        file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      ) {
+        type = "gen_script";
+      }
+
+      if (!type) {
+        const name = file.name.toLowerCase();
+        if (
+          name.endsWith(".png") ||
+          name.endsWith(".jpg") ||
+          name.endsWith(".jpeg") ||
+          name.endsWith(".webp") ||
+          name.endsWith(".gif") ||
+          name.endsWith(".bmp") ||
+          name.endsWith(".tiff") ||
+          name.endsWith(".svg")
+        ) {
+          type = "image";
+        } else if (
+          name.endsWith(".mp4") ||
+          name.endsWith(".webm") ||
+          name.endsWith(".mov") ||
+          name.endsWith(".avi") ||
+          name.endsWith(".mkv") ||
+          name.endsWith(".flv") ||
+          name.endsWith(".3gp") ||
+          name.endsWith(".mpeg") ||
+          name.endsWith(".mpg") ||
+          name.endsWith(".m4v") ||
+          name.endsWith(".f4v") ||
+          name.endsWith(".3gpp")
+        ) {
+          type = "video";
+        } else if (
+          name.endsWith(".mp3") ||
+          name.endsWith(".wav") ||
+          name.endsWith(".m4a") ||
+          name.endsWith(".ogg") ||
+          name.endsWith(".aac") ||
+          name.endsWith(".flac") ||
+          name.endsWith(".wma")
+        ) {
+          type = "audio";
+        } else if (
+          name.endsWith(".txt") ||
+          name.endsWith(".doc") ||
+          name.endsWith(".docx") ||
+          name.endsWith(".pdf") ||
+          name.endsWith(".xlsx") ||
+          name.endsWith(".xls")
+        ) {
+          type = "gen_script";
+        }
+      }
+
+      if (type) {
+        const uploadId = `upl_${Date.now()}_${Math.random().toString(36).substring(2, 5)}_${i}`;
+        const targetX = specifiedPosition.x + i * 40;
+        const targetY = specifiedPosition.y + i * 40;
+        const safePos = findUnoccupiedPosition(targetX, targetY, tempHistory);
+
+        let placeholderTitle = "正在上传文件...";
+        if (type === "image") placeholderTitle = "正在上传参考图片...";
+        else if (type === "video") placeholderTitle = "正在上传参考视频...";
+        else if (type === "audio") placeholderTitle = "正在上传音频...";
+        else if (type === "gen_script") {
+          const ext = file.name.split(".").pop()?.toLowerCase();
+          if (ext === "pdf") placeholderTitle = "正在解析 PDF 文档...";
+          else if (ext === "xlsx" || ext === "xls") placeholderTitle = "正在解析 Excel 表格...";
+          else if (ext === "docx" || ext === "doc") placeholderTitle = "正在解析 Word 文档...";
+          else placeholderTitle = "正在提取文本内容...";
+        }
+
+        const loadingItem: HistoryItem = {
+          id: uploadId,
+          type,
+          status: "loading",
+          timestamp: Date.now(),
+          position: safePos,
+          config: {
+            title: placeholderTitle,
+            isUpload: true,
+            originalName: file.name,
+            isPlaceholder: true,
+          },
+          canvasId: activeCanvasId,
+        };
+
+        newItemsToAppend.push(loadingItem);
+        tempHistory = [loadingItem, ...tempHistory];
+
+        if (type === "gen_script") {
+          (async () => {
+            try {
+              let textResult = "";
+              if (file.name.toLowerCase().endsWith(".doc")) {
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await mammoth.extractRawText({ arrayBuffer });
+                textResult = result.value;
+              } else {
+                textResult = await parseScriptFile(file);
+              }
+
+              if (!textResult || !textResult.trim()) {
+                throw new Error("文本文档内容为空");
+              }
+
+              saveUploadedFileToHistory(file, textResult, "gen_script", uploadId, safePos);
+            } catch (err: any) {
+              setHistory((prev) => prev.filter((h) => h.id !== uploadId));
+              setError(err.message || "文档内容提取失败");
+              setTimeout(() => setError(null), 5000);
+            }
+          })();
+        } else {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const data = event.target?.result as string;
+            saveUploadedFileToHistory(file, data, type, uploadId, safePos);
+          };
+          reader.onerror = () => {
+            setHistory((prev) => prev.filter((h) => h.id !== uploadId));
+            setError("文件读取失败");
+          };
+          reader.readAsDataURL(file);
+        }
+      } else {
+        setError("只支持上传图片、视频、音频及常见文本文档格式（txt、doc、docx、pdf、xlsx等）");
+        setTimeout(() => setError(null), 5000);
+      }
+    }
+
+    if (newItemsToAppend.length > 0) {
+      setHistory((prev) => [...newItemsToAppend, ...prev]);
+    }
+  };
+
+  const handleCanvasUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      addCanvasFiles(e.target.files);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -4135,6 +4605,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   };
 
   const removeReferenceImage = (index: number) => {
+    let deletedHistoryIdStr: string | undefined = undefined;
+
     if (mode === "script" || mode === "director") {
       setScriptConfig((prev) => ({ ...prev, referenceFile: null }));
       return;
@@ -4145,34 +4617,123 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
           videoConfig?.videoMode === "realperson") &&
         (videoConfig?.model === "seedance2.0" || videoConfig?.model === "seedance-mini" || videoConfig?.model === "seedance2.5")
       ) {
+        const deletedAsset = videoConfig.referenceAssets?.[index];
+        deletedHistoryIdStr = deletedAsset?.historyId;
+        if (!deletedHistoryIdStr && deletedAsset?.data) {
+          deletedHistoryIdStr = findHistoryIdByUrl(deletedAsset.data);
+        }
+
         setVideoConfig((prev) => ({
           ...prev,
           referenceAssets: prev.referenceAssets?.filter((_, i) => i !== index),
           prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
         }));
-        return;
-      }
-      if (index === 0) {
-        setVideoConfig((prev) => ({
-          ...prev,
-          image: prev.lastFrame,
-          lastFrame: undefined,
-          prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
-        }));
       } else {
-        setVideoConfig((prev) => ({
-          ...prev,
-          lastFrame: undefined,
-          prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
-        }));
+        if (index === 0) {
+          const deletedImg = videoConfig.image;
+          deletedHistoryIdStr = deletedImg?.historyId;
+          if (!deletedHistoryIdStr && deletedImg?.data) {
+            deletedHistoryIdStr = findHistoryIdByUrl(deletedImg.data);
+          }
+
+          setVideoConfig((prev) => ({
+            ...prev,
+            image: prev.lastFrame,
+            lastFrame: undefined,
+            prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
+          }));
+        } else {
+          const deletedImg = videoConfig.lastFrame;
+          deletedHistoryIdStr = deletedImg?.historyId;
+          if (!deletedHistoryIdStr && deletedImg?.data) {
+            deletedHistoryIdStr = findHistoryIdByUrl(deletedImg.data);
+          }
+
+          setVideoConfig((prev) => ({
+            ...prev,
+            lastFrame: undefined,
+            prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
+          }));
+        }
       }
-      return;
+    } else {
+      const deletedImg = imageConfig.referenceImages?.[index];
+      deletedHistoryIdStr = deletedImg?.historyId;
+      if (!deletedHistoryIdStr && deletedImg?.data) {
+        deletedHistoryIdStr = findHistoryIdByUrl(deletedImg.data);
+      }
+
+      setImageConfig((prev) => ({
+        ...prev,
+        referenceImages: prev.referenceImages?.filter((_, i) => i !== index),
+        prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
+      }));
     }
-    setImageConfig((prev) => ({
-      ...prev,
-      referenceImages: prev.referenceImages?.filter((_, i) => i !== index),
-      prompt: updatePromptOnReferenceDelete(prev.prompt || "", index),
-    }));
+
+    // Now remove the parentId connection from the active selected history item
+    const activeItemId = selectedHistoryId || (selectedIds.length === 1 ? selectedIds[0] : null);
+    if (activeItemId) {
+      const activeItem = history.find((h) => h.id === activeItemId);
+      if (activeItem) {
+        const parentIds = safeParseParentIds(activeItem.parentId);
+
+        // Robust fallback: if we still don't have deletedHistoryIdStr, let's find which parent ID corresponds to the deleted reference
+        if (!deletedHistoryIdStr) {
+          let deletedData: string | undefined = undefined;
+          if (mode === "image") {
+            deletedData = imageConfig.referenceImages?.[index]?.data;
+          } else {
+            if (
+              (videoConfig?.videoMode === "all-around" ||
+                videoConfig?.videoMode === "realperson") &&
+              (videoConfig?.model === "seedance2.0" || videoConfig?.model === "seedance-mini" || videoConfig?.model === "seedance2.5")
+            ) {
+              deletedData = videoConfig.referenceAssets?.[index]?.data;
+            } else {
+              deletedData = index === 0 ? videoConfig.image?.data : videoConfig.lastFrame?.data;
+            }
+          }
+
+          if (deletedData) {
+            const matchingParentId = parentIds.find((pId) => {
+              const p = history.find((h) => h.id === pId);
+              if (!p) return false;
+              return (
+                p.imageUrl === deletedData ||
+                p.videoUrl === deletedData ||
+                p.ossUrl === deletedData ||
+                p.arkOriginalUrl === deletedData ||
+                (p.config && (p.config.imageUrl === deletedData || p.config.videoUrl === deletedData))
+              );
+            });
+            if (matchingParentId) {
+              deletedHistoryIdStr = matchingParentId;
+            }
+          }
+        }
+
+        if (deletedHistoryIdStr) {
+          const nextParentIds = parentIds.filter((pId) => pId !== deletedHistoryIdStr);
+          const updatedItem = {
+            ...activeItem,
+            parentId: nextParentIds.join(","),
+            config: {
+              ...activeItem.config,
+              referenceImages: mode === "image"
+                ? (activeItem.config?.referenceImages || []).filter((ref: any) => ref.historyId !== deletedHistoryIdStr)
+                : activeItem.config?.referenceImages,
+              referenceAssets: mode === "video"
+                ? (activeItem.config?.referenceAssets || []).filter((ref: any) => ref.historyId !== deletedHistoryIdStr)
+                : activeItem.config?.referenceAssets,
+            }
+          };
+          setHistory((prev) =>
+            prev.map((h) => (h.id === activeItemId ? updatedItem : h))
+          );
+          syncToCloud(updatedItem);
+        }
+      }
+    }
   };
 
   const enhancePrompt = async () => {
@@ -5262,6 +5823,34 @@ ${executionPrompt}
     const token = localStorage.getItem("token");
     if (!token) return item;
 
+    // Avoid redundant network sync requests if nothing has changed compared to state
+    try {
+      const existing = history.find((h) => h.id === item.id);
+      if (existing) {
+        const posChanged = JSON.stringify(existing.position) !== JSON.stringify(item.position);
+        const statusChanged = existing.status !== item.status;
+        const imgChanged = existing.imageUrl !== item.imageUrl;
+        const vidChanged = existing.videoUrl !== item.videoUrl;
+        const configChanged = JSON.stringify(existing.config) !== JSON.stringify(item.config);
+        const hiddenChanged = existing.hiddenFromCanvas !== item.hiddenFromCanvas;
+        const errorChanged = existing.error !== item.error;
+
+        if (
+          !posChanged &&
+          !statusChanged &&
+          !imgChanged &&
+          !vidChanged &&
+          !configChanged &&
+          !hiddenChanged &&
+          !errorChanged
+        ) {
+          return item;
+        }
+      }
+    } catch (e) {
+      console.warn("[syncToCloud] Error checking differences:", e);
+    }
+
     try {
       let finalItem = {
         ...item,
@@ -6228,22 +6817,46 @@ ${prompt}
     };
   };
 
+  const getViewportCenterPosition = (): { x: number; y: number } => {
+    let screenCenterX = 100;
+    let screenCenterY = 100;
+
+    const wrapper = canvasViewportRef.current || document.querySelector(".flex-1.relative.overflow-hidden");
+    if (wrapper && transformState) {
+      const rect = wrapper.getBoundingClientRect();
+      const scale = transformState.scale || 1;
+      const posX = transformState.x;
+      const posY = transformState.y;
+      screenCenterX = (rect.width / 2 - posX) / scale - 180;
+      screenCenterY = (rect.height / 2 - posY) / scale - 225;
+    } else if (transformComponentRef.current && transformComponentRef.current.state) {
+      const { state } = transformComponentRef.current;
+      const rect = wrapper ? wrapper.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+      screenCenterX = (rect.width / 2 - state.positionX) / state.scale - 180;
+      screenCenterY = (rect.height / 2 - state.positionY) / state.scale - 225;
+    }
+    return findUnoccupiedPosition(screenCenterX, screenCenterY, history);
+  };
+
   const getFreeCanvasFlowPosition = (
     historyItems: HistoryItem[],
   ): { x: number; y: number } => {
     let screenCenterX = 100;
     let screenCenterY = 100;
 
-    if (transformComponentRef.current && transformComponentRef.current.state) {
+    const wrapper = canvasViewportRef.current || document.querySelector(".flex-1.relative.overflow-hidden");
+    if (wrapper && transformState) {
+      const rect = wrapper.getBoundingClientRect();
+      const scale = transformState.scale || 1;
+      const posX = transformState.x;
+      const posY = transformState.y;
+      screenCenterX = (rect.width / 2 - posX) / scale - 180;
+      screenCenterY = (rect.height / 2 - posY) / scale - 225;
+    } else if (transformComponentRef.current && transformComponentRef.current.state) {
       const { state } = transformComponentRef.current;
-      const wrapper = document.querySelector(
-        ".flex-1.relative.overflow-hidden",
-      );
-      if (wrapper) {
-        const rect = wrapper.getBoundingClientRect();
-        screenCenterX = (rect.width / 2 - state.positionX) / state.scale - 180;
-        screenCenterY = (rect.height / 2 - state.positionY) / state.scale - 225;
-      }
+      const rect = wrapper ? wrapper.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+      screenCenterX = (rect.width / 2 - state.positionX) / state.scale - 180;
+      screenCenterY = (rect.height / 2 - state.positionY) / state.scale - 225;
     }
 
     const bandHeight = 400;
@@ -7335,6 +7948,73 @@ ${prompt}
     return found?.id;
   };
 
+  const handleInlineOptimize = async (itemId: string, itemType: "image" | "video", currentPrompt: string, referenceFiles: any[]) => {
+    if (!currentPrompt.trim()) return null;
+    try {
+      let systemPrompt = "";
+      if (itemType === "video") {
+        systemPrompt = `你现在是一个专业的视频导演和提示词专家。请将以下简单的描述词优化为详细、生动、具有电影感的视频生成提示词。
+        要求：
+        1. 增加镜头运动（如：推、拉、摇、移）、光影变化、氛围感、动作细节等描述。
+        2. 必须以 JSON 格式输出，格式为：{"enhancedPrompt": "优化后的详细视频提示词"}。
+        3. 不要输出任何其他文字，只输出 JSON。`;
+      } else {
+        systemPrompt = `你现在是一位顶级视觉艺术家和创意提示词专家。你的任务是将用户简略的描述扩展为极具美感、细节丰富且符合物理规律的视觉提示词。请重点描述光影、材质、构图和氛围。
+        要求：
+        1. 增加光影、构图、材质、风格等细节描述。
+        2. 必须以 JSON 格式输出，格式为：{"enhancedPrompt": "优化后的详细提示词"}。
+        3. 不要输出任何其他文字，只输出 JSON。`;
+      }
+
+      const parts: any[] = [
+        { text: `${systemPrompt}\n\n原始描述：${currentPrompt}` },
+      ];
+
+      referenceFiles.forEach((ref: any, idx: number) => {
+        if (ref.data) {
+          parts.push({
+            inlineData: {
+              data: ref.data.includes(",") ? ref.data.split(",")[1] : ref.data,
+              mimeType: ref.mimeType || "image/png",
+            },
+          });
+          parts.push({ text: `参考图${idx + 1} (图${idx + 1})` });
+        }
+      });
+
+      const enhanceResponse = await pipelineService.callApi(
+        "script",
+        "generateContent",
+        {
+          contents: [
+            {
+              role: "user",
+              parts,
+            },
+          ],
+          config: {
+            systemInstruction:
+              "你是一位顶级视觉艺术家和创意提示词专家。请将以下原始描述优化为详细、精美且有画面的视觉提示词，并返回 JSON 格式，包含 'enhancedPrompt' 字段。",
+            responseMimeType: "application/json",
+          },
+        },
+      );
+
+      const jsonText =
+        enhanceResponse.text ||
+        enhanceResponse.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const cleanedJson = jsonText.replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(cleanedJson);
+        const enhanced = parsed.enhancedPrompt || cleanedJson;
+        return enhanced;
+      }
+    } catch (e) {
+      console.error("Failed to inline optimize prompt:", e);
+    }
+    return null;
+  };
+
   const generateImage = async (
     customConfig?: SmartImageConfig,
     position?: { x: number; y: number },
@@ -7445,7 +8125,8 @@ ${prompt}
       return;
     }
 
-    let targetDraftIdToReplace: string | null = null;
+    const activeDraft = selectedHistoryId ? history.find((h) => h.id === selectedHistoryId && h.status === "draft_new" && h.type === "image") : null;
+    let targetDraftIdToReplace: string | null = activeDraft ? activeDraft.id : null;
     let posX = 100;
     let posY = 100;
     let finalParentId: string | undefined = undefined;
@@ -7457,9 +8138,8 @@ ${prompt}
     } else {
       const parentIdsCollected = new Set<string>();
 
-      const activeDraft = (selectedHistoryId ? history.find((h) => h.id === selectedHistoryId && h.status === "draft_new" && h.type === "image") : null) || history.find((h) => h.status === "draft_new" && h.type === "image");
-      if (activeDraft && activeDraft.parentId) {
-        safeParseParentIds(activeDraft.parentId)
+      if (activeDraft && (activeDraft as any).parentId) {
+        safeParseParentIds((activeDraft as any).parentId)
           .forEach((pId) => parentIdsCollected.add(pId));
       }
 
@@ -7486,7 +8166,7 @@ ${prompt}
         matches.forEach((match) => {
           const labelName = match[1];
           const assets = getMentionableAssets();
-          const foundAsset = assets.find((a) => a.label === labelName);
+          const foundAsset = findAssetByLabel(assets, labelName);
           if (foundAsset) {
             if (foundAsset.isTrayAsset) {
               if (foundAsset.historyId) {
@@ -7512,11 +8192,11 @@ ${prompt}
 
       if (!position) {
         // Prioritize active "draft_new" of type "image"
-        const activeDraft = (selectedHistoryId ? history.find((h) => h.id === selectedHistoryId && h.status === "draft_new" && h.type === "image") : null) || history.find((h) => h.status === "draft_new" && h.type === "image");
-        if (activeDraft && activeDraft.position) {
-          posX = activeDraft.position.x;
-          posY = activeDraft.position.y;
-          targetDraftIdToReplace = activeDraft.id;
+        const activeDraft = null;
+        if (activeDraft && (activeDraft as any).position) {
+          posX = (activeDraft as any).position.x;
+          posY = (activeDraft as any).position.y;
+          targetDraftIdToReplace = (activeDraft as any).id;
         } else if (layoutMode === "bento") {
           const nextPos = getNextGridPosition(history);
           posX = nextPos.x;
@@ -7624,7 +8304,7 @@ ${prompt}
         .map((match) => {
           const label = match[1]; // Get matched group (label name)
           const assets = getMentionableAssets();
-          return assets.find((a) => a.label === label);
+          return findAssetByLabel(assets, label);
         })
         .filter(Boolean);
 
@@ -7941,7 +8621,8 @@ ${prompt}
       return;
     }
 
-    let targetDraftIdToReplace: string | null = null;
+    const activeDraft = selectedHistoryId ? history.find((h) => h.id === selectedHistoryId && h.status === "draft_new" && h.type === "video") : null;
+    let targetDraftIdToReplace: string | null = activeDraft ? activeDraft.id : null;
     let posX = 100;
     let posY = 100;
     let finalParentId: string | undefined = undefined;
@@ -7953,9 +8634,8 @@ ${prompt}
     } else {
       const parentIdsCollected = new Set<string>();
 
-      const activeDraft = (selectedHistoryId ? history.find((h) => h.id === selectedHistoryId && h.status === "draft_new" && h.type === "video") : null) || history.find((h) => h.status === "draft_new" && h.type === "video");
-      if (activeDraft && activeDraft.parentId) {
-        safeParseParentIds(activeDraft.parentId)
+      if (activeDraft && (activeDraft as any).parentId) {
+        safeParseParentIds((activeDraft as any).parentId)
           .forEach((pId) => parentIdsCollected.add(pId));
       }
 
@@ -7999,7 +8679,7 @@ ${prompt}
         matches.forEach((match) => {
           const labelName = match[1];
           const assets = getMentionableAssets();
-          const foundAsset = assets.find((a) => a.label === labelName);
+          const foundAsset = findAssetByLabel(assets, labelName);
           if (foundAsset) {
             if (foundAsset.isTrayAsset) {
               if (foundAsset.historyId) {
@@ -8027,11 +8707,11 @@ ${prompt}
 
       if (!position) {
         // Prioritize active "draft_new" of type "video"
-        const activeDraft = (selectedHistoryId ? history.find((h) => h.id === selectedHistoryId && h.status === "draft_new" && h.type === "video") : null) || history.find((h) => h.status === "draft_new" && h.type === "video");
-        if (activeDraft && activeDraft.position) {
-          posX = activeDraft.position.x;
-          posY = activeDraft.position.y;
-          targetDraftIdToReplace = activeDraft.id;
+        const activeDraft = null;
+        if (activeDraft && (activeDraft as any).position) {
+          posX = (activeDraft as any).position.x;
+          posY = (activeDraft as any).position.y;
+          targetDraftIdToReplace = (activeDraft as any).id;
         } else if (layoutMode === "bento") {
           const nextPos = getNextGridPosition(history);
           posX = nextPos.x;
@@ -8147,7 +8827,7 @@ ${prompt}
       // Then, add mentioned assets from history only if they are explicitly in the current prompt
       matches.forEach((match) => {
         const labelWithoutAt = match[1];
-        const ref = allMentionable.find((a) => a.label === labelWithoutAt);
+        const ref = findAssetByLabel(allMentionable, labelWithoutAt);
         if (ref) {
           const type = (ref.type || "image") as "image" | "video" | "audio" | "character_asset" | "gen_script";
           if (type === "character_asset" || type === "gen_script") return;
@@ -8327,6 +9007,12 @@ ${prompt}
             setHistory((prev) =>
               prev.map((item) => (item.id === taskId ? syncedItem : item)),
             );
+
+            updateChatHistoryForTask(
+              taskId,
+              "success",
+              syncedItem.videoUrl || syncedItem.ossUrl || finalVideoUrl,
+            );
           } else if (status.error) {
             const errorMsg =
               typeof status.error === "object"
@@ -8387,6 +9073,8 @@ ${prompt}
             : item,
         ),
       );
+
+      updateChatHistoryForTask(taskId, "error", undefined, errorMessage);
 
       setError(errorMessage);
       const isCritical =
@@ -8470,7 +9158,7 @@ ${prompt}
         [],
         "",
         productionMode,
-        false, // Not flexible by default in this view
+        directorConfig.segmentDuration?.id === 'random' ? 'flexible-15' : (directorConfig.segmentDuration?.id === 'random-30' ? 'flexible-30' : false),
         spatialMode,
       );
 
@@ -8879,7 +9567,7 @@ ${prompt}
         [],
         "",
         "prompt", // backend uses "prompt" to get full structures
-        false,
+        directorConfig.segmentDuration?.id === 'random' ? 'flexible-15' : (directorConfig.segmentDuration?.id === 'random-30' ? 'flexible-30' : false),
         spatialMode,
       );
 
@@ -9080,7 +9768,7 @@ ${prompt}
         [],
         "",
         productionMode,
-        false,
+        directorConfig.segmentDuration?.id === 'random' ? 'flexible-15' : (directorConfig.segmentDuration?.id === 'random-30' ? 'flexible-30' : false),
         spatialMode,
       );
 
@@ -9480,6 +10168,13 @@ ${prompt}
   };
 
   const handleRemix = (item: HistoryItem) => {
+    // Open AI Intent Console and clear selection to bypass placeholder cards
+    setIsInputCardMinimized(false);
+    setIsCollabCollapsed(false);
+    setIsCollabModeActive(false);
+    setSelectedHistoryId(null);
+    setSelectedIds([]);
+
     if (item.type === "video") {
       setMode("video");
       const config = item.config as SmartVideoConfig;
@@ -9513,12 +10208,12 @@ ${prompt}
       }));
       if (item.isOptimized) setIsOptimized(true);
     }
-    // Scroll to bottom where the input is
+    // Scroll to bottom where the input is and focus
     setTimeout(() => {
       const inputElement = document.querySelector("textarea");
       inputElement?.focus();
       inputElement?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 100);
+    }, 150);
   };
 
   const handleApplyMode = (modeValue: string, item: HistoryItem) => {
@@ -10019,7 +10714,7 @@ ${prompt}
                   >
                     <div className="flex items-center space-x-2.5 flex-1 min-w-0">
                       {/* Thumbnail with fancy fallback */}
-                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-805 flex-shrink-0 flex items-center justify-center border border-zinc-800 relative shadow-inner">
+                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-850 flex-shrink-0 flex items-center justify-center border border-zinc-800 relative shadow-inner">
                         {thumbnailToUse ? (
                           <img
                             src={thumbnailToUse}
@@ -10098,7 +10793,7 @@ ${prompt}
                 );
               })}
             </div>
-
+            
             {/* Storage Quota Usage & GC Optimizer Panel (Section 3) */}
             <div className="p-3 border-t border-[#1e2030] bg-[#12141f] shrink-0 space-y-2.5">
               <div className="space-y-1">
@@ -10151,6 +10846,12 @@ ${prompt}
         <div 
           ref={canvasViewportRef}
           className="flex-1 relative overflow-hidden"
+          style={{
+            backgroundColor: "#e2e8f0",
+            backgroundImage: `radial-gradient(#94a3b8 ${1.2 * transformState.scale}px, transparent ${1.2 * transformState.scale}px)`,
+            backgroundSize: `${24 * transformState.scale}px ${24 * transformState.scale}px`,
+            backgroundPosition: `${transformState.x + 200 * transformState.scale}px ${transformState.y + 200 * transformState.scale}px`,
+          }}
           onDragOver={(e) => {
             if (e.dataTransfer && e.dataTransfer.types.includes("Files")) {
               e.preventDefault();
@@ -10353,307 +11054,44 @@ ${prompt}
             </p>
           </div>
         )}
-        {/* Infinite Canvas Layout Toolbar - Persistent Floating on Top Left */}
-        <div className={cn(
-          "absolute top-8 z-[100] flex flex-col space-y-3 transition-all duration-300 ease-in-out",
-          isSidebarOpen ? "left-6" : "left-[104px]"
-        )}>
-          <div className="flex items-center space-x-2.5 self-start pointer-events-auto">
-            {!isSidebarOpen && (
-              <button
-                onClick={() => setIsSidebarOpen(true)}
-                className="bg-white/90 backdrop-blur-md rounded-2xl p-2.5 px-4 shadow-xl border border-gray-100 flex items-center justify-center text-gray-700 hover:text-indigo-600 transition-all hover:bg-white active:scale-95 self-start pointer-events-auto"
-                title="展开画布列表"
-              >
-                <PanelLeftOpen className="w-4 h-4 mr-1.5 text-slate-700" />
-                <span className="text-xs font-black text-slate-700">画布管理</span>
-              </button>
-            )}
 
-            {/* 画布排列 Dropdown Selector */}
-            <div 
-              className="relative"
-              onMouseEnter={() => setIsLayoutDropdownOpen(true)}
-              onMouseLeave={() => setIsLayoutDropdownOpen(false)}
-            >
-              <button
-                onClick={() => setIsLayoutDropdownOpen(!isLayoutDropdownOpen)}
-                className="bg-white/90 backdrop-blur-md rounded-2xl p-2.5 px-4 shadow-xl border border-gray-100 flex items-center justify-center text-gray-700 hover:text-indigo-600 transition-all hover:bg-white active:scale-95 text-xs font-black"
-                title="画布排列方式"
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1.5 text-indigo-500" />
-                <span>
-                  {layoutMode === "mindmap" && "自由脑图流"}
-                  {layoutMode === "bento" && "整齐网格流"}
-                  {layoutMode === "semi_auto" && "区块分类流"}
-                </span>
-                <ChevronDown className={cn("w-3.5 h-3.5 ml-1.5 text-gray-400 transition-transform duration-200", isLayoutDropdownOpen && "rotate-180")} />
-              </button>
-
-              {isLayoutDropdownOpen && (
-                <div className="absolute left-0 top-full pt-2 w-full min-w-[130px] z-50">
-                  <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 p-1.5 flex flex-col space-y-1 animate-in fade-in slide-in-from-top-2 duration-100">
-                    <button
-                      onClick={() => {
-                        setLayoutMode("mindmap");
-                        autoLayoutMindMap(true, false);
-                        setIsLayoutDropdownOpen(false);
-                      }}
-                      className={cn(
-                        "w-full flex items-center space-x-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left",
-                        layoutMode === "mindmap"
-                          ? "bg-purple-50 text-purple-700"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                      )}
-                    >
-                      <GitFork className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                      <span>自由脑图流</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        setLayoutMode("bento");
-                        autoLayoutBentoGrid(true);
-                        setIsLayoutDropdownOpen(false);
-                      }}
-                      className={cn(
-                        "w-full flex items-center space-x-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left",
-                        layoutMode === "bento"
-                          ? "bg-teal-50 text-teal-700"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                      )}
-                    >
-                      <Grid className="w-3.5 h-3.5 text-teal-500 shrink-0" />
-                      <span>整齐网格流</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setLayoutMode("semi_auto");
-                        autoLayoutSemiAuto(true);
-                        setIsLayoutDropdownOpen(false);
-                      }}
-                      className={cn(
-                        "w-full flex items-center space-x-1.5 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left",
-                        layoutMode === "semi_auto"
-                          ? "bg-amber-50 text-amber-700"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                      )}
-                    >
-                      <Workflow className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span>区块分类流</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Interaction Tools */}
-            <div className="bg-white/90 backdrop-blur-md rounded-2xl p-1 shadow-xl border border-gray-100 flex items-center space-x-1 pointer-events-auto">
-              <button
-                onClick={() => {
-                  setInteractionMode("select");
-                  setError("多选框选模式已开启，在画布空白处拖拽即可批量多选！");
-                  setIsCriticalError(false);
-                }}
-                className={cn(
-                  "w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 relative group/btn",
-                  interactionMode === "select"
-                    ? "bg-indigo-50 text-indigo-600 ring-2 ring-indigo-500/10 shadow-sm font-bold"
-                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100",
-                )}
-                title="多选框选工具 (V)"
-              >
-                <MousePointer className="w-4 h-4" />
-                {/* Tooltip */}
-                <div className="absolute top-10 left-1/2 -translate-x-1/2 whitespace-nowrap bg-gray-900 text-white text-[10px] py-1 px-2 rounded-lg opacity-0 pointer-events-none group-hover/btn:opacity-100 transition-opacity z-[200] shadow-xl flex items-center space-x-1.5 font-bold">
-                  <span>多选工具</span>
-                  <kbd className="bg-gray-800 px-1 rounded text-[9px] text-gray-400 font-mono">V</kbd>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  setInteractionMode("pan");
-                  setSelectedIds([]);
-                }}
-                className={cn(
-                  "w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 relative group/btn",
-                  interactionMode === "pan"
-                    ? "bg-indigo-50 text-indigo-600 ring-2 ring-indigo-500/10 shadow-sm font-bold"
-                    : "text-gray-500 hover:text-gray-800 hover:bg-gray-100",
-                )}
-                title="拖拽抓手工具 (Space)"
-              >
-                <Hand className="w-4 h-4" />
-                {/* Tooltip */}
-                <div className="absolute top-10 left-1/2 -translate-x-1/2 whitespace-nowrap bg-gray-900 text-white text-[10px] py-1 px-2 rounded-lg opacity-0 pointer-events-none group-hover/btn:opacity-100 transition-opacity z-[200] shadow-xl flex items-center space-x-1.5 font-bold">
-                  <span>视图抓手</span>
-                  <kbd className="bg-gray-800 px-1 rounded text-[9px] text-gray-400 font-mono">Space</kbd>
-                </div>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Tactical Pipeline Command Center Overlay */}
-        {(() => {
-          const pipelineNodes = displayHistory.filter((h: any) => h.config?.isPipelineNode);
-          if (pipelineNodes.length === 0) return null;
-
-          const hasPending = pipelineNodes.some((h: any) => h.status === 'pipeline_pending');
-          const isRunning = pipelineNodes.some((h: any) => h.status === 'running');
-          const isFailed = pipelineNodes.some((h: any) => h.status === 'failed');
-          const isAllCompleted = pipelineNodes.every((h: any) => h.status === 'success' || h.status === 'completed' || h.status === 'skipped');
-
-          let statusTitle = "意图沙盘就绪";
-          let statusBadgeClass = "bg-indigo-500/15 text-indigo-400 border-indigo-500/30";
-          let statusDesc = "等待指挥官下达执行指令";
-
-          if (isRunning) {
-            statusTitle = "正在执行";
-            statusBadgeClass = "bg-amber-500/15 text-amber-400 border-amber-500/30 animate-pulse";
-            statusDesc = "全自动大模型多模态并发生成中...";
-          } else if (isFailed) {
-            statusTitle = "执行受阻";
-            statusBadgeClass = "bg-rose-500/15 text-rose-400 border-rose-500/30 animate-bounce";
-            statusDesc = "某节点发生异常，请检查并重试";
-          } else if (isAllCompleted) {
-            statusTitle = "渲染完成";
-            statusBadgeClass = "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
-            statusDesc = "全链路数字资产已生成并存储";
-          }
-
-          return (
-            <div className="fixed top-8 left-8 z-[100] flex flex-col space-y-4 pointer-events-none">
-              <motion.div
-                initial={{ opacity: 0, x: -30, scale: 0.95 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                className="w-80 bg-zinc-950/90 backdrop-blur-2xl rounded-[28px] p-5 shadow-[0_24px_50px_rgba(0,0,0,0.5)] border border-zinc-850 pointer-events-auto flex flex-col text-slate-200 select-none"
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between mb-3.5">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-[0_0_10px_#6366f1]" />
-                    <span className="text-xs font-black tracking-wider uppercase text-slate-300">
-                      意图战术指挥部
-                    </span>
-                  </div>
-                  <span className={cn("text-[9px] font-extrabold px-2 py-0.5 rounded-full border", statusBadgeClass)}>
-                    {statusTitle}
-                  </span>
-                </div>
-
-                {/* Status Desc */}
-                <p className="text-[11px] text-zinc-400 leading-normal mb-4 font-medium">
-                  {statusDesc}
-                </p>
-
-                {/* Steps List */}
-                <div className="flex flex-col space-y-2 mb-4 max-h-[180px] overflow-y-auto pr-1">
-                  {pipelineNodes.map((node: any, idx: number) => {
-                    let stepIcon = "⚙️";
-                    if (node.type === 'image') stepIcon = "🎨";
-                    if (node.type === 'video') stepIcon = "🎬";
-                    if (node.type === 'gen_script') stepIcon = "✍️";
-
-                    let stepStatusText = "等待执行";
-                    let stepStatusClass = "text-zinc-500";
-
-                    if (node.status === 'running') {
-                      stepStatusText = "渲染中...";
-                      stepStatusClass = "text-amber-400 font-extrabold animate-pulse";
-                    } else if (node.status === 'success' || node.status === 'completed') {
-                      stepStatusText = "已就绪";
-                      stepStatusClass = "text-emerald-400 font-extrabold";
-                    } else if (node.status === 'failed') {
-                      stepStatusText = "受阻";
-                      stepStatusClass = "text-rose-400 font-extrabold";
-                    } else if (node.status === 'skipped') {
-                      stepStatusText = "已跳过";
-                      stepStatusClass = "text-zinc-650 line-through";
-                    }
-
-                    return (
-                      <div 
-                        key={node.id}
-                        className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/40 border border-zinc-850/60 hover:bg-zinc-900/70 transition-colors"
-                      >
-                        <div className="flex items-center space-x-2 min-w-0 flex-1">
-                          <span className="text-xs flex-shrink-0">{stepIcon}</span>
-                          <span className="text-[11px] font-bold text-zinc-300 truncate">
-                            {node.config?.title || `步骤 ${idx + 1}`}
-                          </span>
-                        </div>
-                        <span className={cn("text-[10px] flex-shrink-0 ml-2 font-mono", stepStatusClass)}>
-                          {stepStatusText}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Bottom Action Trigger */}
-                {hasPending && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const pipelineId = pipelineNodes[0]?.config?.pipelineId;
-                      if (pipelineId) {
-                        window.dispatchEvent(new CustomEvent('start-pipeline-execution', {
-                          detail: { pipelineId }
-                        }));
-                      }
-                    }}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-xs shadow-md transition-all active:scale-95 flex items-center justify-center space-x-1 cursor-pointer"
-                  >
-                    <span>▶️ 正式启动多模态执行</span>
-                  </button>
-                )}
-
-                {isRunning && (
-                  <div className="w-full flex items-center justify-center space-x-2 py-2 text-[11px] text-amber-400 font-bold bg-amber-500/5 rounded-xl border border-amber-500/10">
-                    <span className="animate-spin text-xs">🌀</span>
-                    <span>多模态节点正高速并行生成...</span>
-                  </div>
-                )}
-
-                {isFailed && (
-                  <p className="text-[10px] text-rose-400 font-bold bg-rose-500/5 p-2 rounded-xl border border-rose-500/10 text-center leading-normal">
-                    💡 请在沙盘微调失败节点的描述词并点击其“重新执行”按钮。
-                  </p>
-                )}
-
-                {isAllCompleted && (
-                  <div className="w-full flex items-center justify-center space-x-1 py-2 text-[11px] text-emerald-400 font-extrabold bg-emerald-500/5 rounded-xl border border-emerald-500/10">
-                    <span>✨ 全链路意图沙盘调度就绪！</span>
-                  </div>
-                )}
-              </motion.div>
-            </div>
-          );
-        })()}
 
         {/* Navigation Map & Controls - Persistent Floating */}
-        <div className="fixed top-8 right-8 z-[100] flex flex-col items-end space-y-4 pointer-events-none">
-          <div className="w-64 bg-white/40 backdrop-blur-3xl rounded-[32px] p-4 shadow-2xl border border-white/40 pointer-events-auto group/map relative overflow-visible">
+        <div className={cn(
+          "fixed bottom-8 z-[100] flex flex-col items-start space-y-4 pointer-events-none transition-all duration-300 ease-in-out",
+          isSidebarOpen ? "left-[360px]" : "left-[104px]"
+        )}>
+          <div
+            className="w-64 aspect-[16/10] bg-white/70 backdrop-blur-2xl rounded-2xl relative overflow-hidden border border-gray-200/50 cursor-crosshair hover:border-indigo-500/30 transition-all pointer-events-auto shadow-xl"
+            onClick={handleMoveTo}
+          >
+            {/* Mini Map Grid Background */}
             <div
-              className="aspect-[16/10] bg-gray-900/5 rounded-2xl relative overflow-hidden mb-3 border border-gray-200/50 cursor-crosshair group-hover/map:border-indigo-500/30 transition-colors"
-              onClick={handleMoveTo}
-            >
-              {/* Mini Map Grid Background */}
-              <div
-                className="absolute inset-0 opacity-10"
-                style={{
-                  backgroundImage:
-                    "radial-gradient(#000 0.5px, transparent 0.5px)",
-                  backgroundSize: "10px 10px",
-                }}
-              />
+              className="absolute inset-0 opacity-10"
+              style={{
+                backgroundImage:
+                  "radial-gradient(#000 0.5px, transparent 0.5px)",
+                backgroundSize: "10px 10px",
+              }}
+            />
 
-              {/* Mini Map Content */}
-              <div className="absolute inset-0 p-2">
-                {itemsOnCanvas.length > 0 && mapBounds && (
+            {/* Mini Map Content */}
+            <div className="absolute inset-0 p-2">
+              {itemsOnCanvas.length > 0 && mapBounds && (() => {
+                const scale = transformState.scale > 0 ? transformState.scale : 1;
+                const viewportWidth = window.innerWidth / scale;
+                const viewportHeight = window.innerHeight / scale;
+                const viewportX = -transformState.x / scale;
+                const viewportY = -transformState.y / scale;
+
+                const viewportRect = {
+                  left: `${((viewportX - mapBounds.minX) / mapBounds.width) * 100}%`,
+                  top: `${((viewportY - mapBounds.minY) / mapBounds.height) * 100}%`,
+                  width: `${Math.max(5, Math.min(100, (viewportWidth / mapBounds.width) * 100))}%`,
+                  height: `${Math.max(5, Math.min(100, (viewportHeight / mapBounds.height) * 100))}%`,
+                };
+
+                return (
                   <div className="w-full h-full relative">
                     {/* Item Dots & Thumbnails */}
                     {itemsOnCanvas.map((item) => (
@@ -10695,11 +11133,11 @@ ${prompt}
                               {item.imageUrl ? (
                                 <img
                                   src={item.imageUrl}
-                                  className="w-full h-full object-cover rounded-xl"
+                                  className="w-full h-full object-cover rounded-2xl"
                                   referrerPolicy="no-referrer"
                                 />
                               ) : (
-                                <div className="w-full h-full bg-gray-50 rounded-xl flex items-center justify-center">
+                                <div className="w-full h-full bg-gray-50 rounded-2xl flex items-center justify-center">
                                   <RefreshCw className="w-6 h-6 text-gray-200 animate-spin" />
                                 </div>
                               )}
@@ -10709,25 +11147,8 @@ ${prompt}
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center px-1">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-gray-900 uppercase tracking-[0.2em] leading-none mb-1">
-                  导航地图
-                </span>
-                <span className="text-[9px] font-medium text-gray-400">
-                  点击圆点快速定位素材
-                </span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                <span className="text-[9px] font-bold text-gray-500">图片</span>
-                <div className="w-1.5 h-1.5 rounded-full bg-purple-500 ml-1" />
-                <span className="text-[9px] font-bold text-gray-500">视频</span>
-              </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -10774,12 +11195,7 @@ ${prompt}
           >
             <div
               id="infinite-canvas-grid"
-              className="relative min-w-[5000px] min-h-[5000px]"
-              style={{
-                backgroundImage:
-                  "radial-gradient(#e5e7eb 1px, transparent 1px)",
-                backgroundSize: "24px 24px",
-              }}
+              className="relative min-w-[5000px] min-h-[5000px] bg-transparent"
               onContextMenu={(e) => {
                 const target = e.target as HTMLElement;
                 if (
@@ -10937,7 +11353,7 @@ ${prompt}
 
                       {(() => {
                         const renderedPaths = new Set<string>();
-                        return layoutMode === "mindmap" && itemsOnCanvas.flatMap((item) => {
+                        return (layoutMode === "mindmap" || layoutMode === "semi_auto") && itemsOnCanvas.flatMap((item) => {
                           const parentIds = safeParseParentIds(item.parentId);
                           return parentIds
                             .map((parent_id) => {
@@ -10959,8 +11375,8 @@ ${prompt}
                               const pSpec = getActualCanvasCardSizeAndPort(parent);
                               const cSpec = getActualCanvasCardSizeAndPort(item);
 
-                              const pPortX = parent.status === "draft_new" ? (pSpec.width + 15) : pSpec.portX;
-                              const pPortY = parent.status === "draft_new" ? 170 : pSpec.portY;
+                              const pPortX = pSpec.portX;
+                              const pPortY = pSpec.portY;
                               const startX = pX + pPortX;
                               const startY = pY + pPortY;
                               const endX = cX - 15;
@@ -10979,25 +11395,22 @@ ${prompt}
 
                               return (
                                 <g key={pathKey}>
-                                  {/* Glow path */}
+                                  {/* Ambient backing path */}
                                   <path
                                     d={pathD}
                                     fill="none"
-                                    stroke="url(#linkLineGrad)"
+                                    stroke="rgba(255, 255, 255, 0.4)"
                                     strokeWidth="4"
                                     strokeLinecap="round"
-                                    style={{ filter: "url(#lineGlow)" }}
-                                    className="opacity-40 animate-pulse"
                                   />
-                                  {/* Main colored path */}
+                                  {/* Main solid white path matching Figure 1 */}
                                   <path
                                     d={pathD}
                                     fill="none"
-                                    stroke="#6366f1"
-                                    strokeWidth="2"
-                                    strokeDasharray="4 6"
+                                    stroke="#ffffff"
+                                    strokeWidth="2.5"
                                     strokeLinecap="round"
-                                    className="opacity-70"
+                                    className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
                                   />
                                 </g>
                               );
@@ -11014,16 +11427,20 @@ ${prompt}
                             .filter((item) => selectedIds.includes(item.id) && !item.hiddenFromCanvas && item.position)
                             .map((item) => {
                               const spec = getActualCanvasCardSizeAndPort(item);
-                              const portX = item.status === "draft_new" ? (spec.width + 15) : spec.portX;
-                              const portY = item.status === "draft_new" ? 170 : spec.portY;
+                              const portX = spec.portX;
+                              const portY = spec.portY;
                               const sourceX = (item.position?.x ?? 0) + portX;
                               const sourceY = (item.position?.y ?? 0) + portY;
+                              const magPos = getMagneticPosition() || {
+                                x: selectionRightPanelPosition.x + panelDragOffset.x,
+                                y: selectionRightPanelPosition.y + panelDragOffset.y,
+                              };
                               const targetX = (isDraggingArrow && arrowDragCurrentPos)
                                 ? arrowDragCurrentPos.x
-                                : (selectionRightPanelPosition.x + panelDragOffset.x);
+                                : magPos.x;
                               const targetY = (isDraggingArrow && arrowDragCurrentPos)
                                 ? arrowDragCurrentPos.y
-                                : (selectionRightPanelPosition.y + panelDragOffset.y);
+                                : magPos.y;
 
                               const arrowKey = `curved-arrow-sel-${item.id}`;
                               if (renderedArrows.has(arrowKey)) return null;
@@ -11069,9 +11486,9 @@ ${prompt}
                           return parentIds.includes(item.id);
                         });
                         return (
-                          <HistoryCard
-                            key={item.id}
-                            item={item}
+                          <React.Fragment key={item.id}>
+                            <HistoryCard
+                              item={item}
                             history={history}
                             isSelected={selectedHistoryId === item.id}
                             isMultiSelected={selectedIds.includes(item.id)}
@@ -11088,6 +11505,7 @@ ${prompt}
                             workflowSkills={workflowSkills}
                             syncToCloud={syncToCloud}
                             customModels={customModels}
+                            onCardContextMenu={handleCardContextMenu}
                           onSelect={(id) => {
                             if (interactionMode === "select") {
                               setSelectedIds((prev) =>
@@ -11149,6 +11567,12 @@ ${prompt}
                                     referenceAssets: nextAssets,
                                   }));
                                   if (mode !== "video") setMode("video");
+                                } else if (item.type === "gen_script") {
+                                  setIsCollabModeActive(true);
+                                  setCollabChatTargetId('xiaoluo_ai');
+                                  setCollabAiSkillRaw('createScript');
+                                  setScriptConfig((prev) => ({ ...prev, activeSubTab: "create" }));
+                                  if (mode !== "script") setMode("script");
                                 }
                               }
                             }
@@ -11351,7 +11775,83 @@ ${prompt}
                             }
                           }}
                         />
-                      );
+                        {selectedHistoryId === item.id && !isDraggingCard && item.status === "draft_new" && (item.type === "image" || item.type === "video") && (
+                          <div
+                            className="absolute z-[100] no-canvas-intercept"
+                            style={{
+                              left: `${(item.position?.x || 0) + (getActualCanvasCardSizeAndPort(item).width - 640) / 2}px`,
+                              top: `${(item.position?.y || 0) + getActualCanvasCardSizeAndPort(item).height + 16}px`,
+                              width: "640px",
+                              transform: `scale(${1 / (transformState.scale || 1)})`,
+                              transformOrigin: "top center"
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
+                            <InlineGenerationConsole
+                              item={item}
+                              imageConfig={imageConfig}
+                              setImageConfig={setImageConfig}
+                              videoConfig={videoConfig}
+                              setVideoConfig={setVideoConfig}
+                              isGenerating={isGenerating}
+                              onGenerateImage={generateImage}
+                              onGenerateVideo={generateVideo}
+                              handleInlineOptimize={handleInlineOptimize}
+                              saveUploadedFileToHistory={saveUploadedFileToHistory}
+                              generateVideoThumbnail={generateVideoThumbnail}
+                              onClose={() => setSelectedHistoryId(null)}
+                              onRemoveReference={removeReferenceImage}
+                              assets={getMentionableAssets()}
+                              workflowSkills={workflowSkills}
+                              activeCustomSkillIds={activeCustomSkillIds}
+                              setActiveCustomSkillIds={setActiveCustomSkillIds}
+                              cameraParams={cameraParams}
+                              setCameraParams={setCameraParams}
+                              clearCameraParams={clearCameraParams}
+                              showCameraControl={showCameraControl}
+                              setShowCameraControl={setShowCameraControl}
+                              showPerspectiveSim={showPerspectiveSim}
+                              setShowPerspectiveSim={setShowPerspectiveSim}
+                              showPointAndShootEditor={showPointAndShootEditor}
+                              setShowPointAndShootEditor={setShowPointAndShootEditor}
+                              customModels={customModels}
+                            />
+                          </div>
+                        )}
+                        {selectedHistoryId === item.id && !isDraggingCard && item.type === "gen_script" && (!item.revisedPrompt || item.revisedPrompt.trim() === "") && (
+                          <div
+                            className="absolute z-[100] no-canvas-intercept"
+                            style={{
+                              left: `${(item.position?.x || 0) + (getActualCanvasCardSizeAndPort(item).width - 640) / 2}px`,
+                              top: `${(item.position?.y || 0) + getActualCanvasCardSizeAndPort(item).height + 16}px`,
+                              width: "640px",
+                              transform: `scale(${1 / (transformState.scale || 1)})`,
+                              transformOrigin: "top center"
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
+                            <InlineScriptConsole
+                              item={item}
+                              scriptConfig={scriptConfig}
+                              setScriptConfig={setScriptConfig}
+                              directorConfig={directorConfig}
+                              setDirectorConfig={setDirectorConfig}
+                              isGenerating={isGenerating}
+                              onGenerateScript={generateScript}
+                              userPoints={userPoints}
+                              onClose={() => setSelectedHistoryId(null)}
+                              localTextModel={localTextModel}
+                              setLocalTextModel={setLocalTextModel}
+                              customModels={customModels}
+                              workflowSkills={workflowSkills}
+                              removedSystemSkillIds={removedSystemSkillIds}
+                            />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
                     })}
 
                     {selectionBounds && selectedIds.length > 1 && (
@@ -11420,36 +11920,44 @@ ${prompt}
                       </div>
                     )}
 
-                    {layoutMode !== "bento" && layoutMode !== "semi_auto" && selectionRightPanelPosition && selectedIds.length > 0 && (
-                      <div
-                        className="absolute z-[110] no-canvas-intercept arrow-drag-button"
-                        style={{
-                          left: `${(isDraggingArrow && arrowDragCurrentPos) ? arrowDragCurrentPos.x : (selectionRightPanelPosition.x + panelDragOffset.x)}px`,
-                          top: `${(isDraggingArrow && arrowDragCurrentPos) ? arrowDragCurrentPos.y : (selectionRightPanelPosition.y + panelDragOffset.y)}px`,
-                          transform: `translate(-50%, -50%) scale(${1 / (transformState.scale || 1)})`,
-                          transformOrigin: "center center",
-                          pointerEvents: "auto",
-                        }}
-                      >
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.6 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.6 }}
-                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                          onPointerDown={handleArrowDragStart}
-                          onPointerMove={handleArrowDragMove}
-                          onPointerUp={handleArrowDragEnd}
-                          onPointerCancel={handleArrowDragEnd}
-                          className="w-12 h-12 bg-zinc-950/90 border-2 border-zinc-700 hover:border-indigo-500 shadow-[0_8px_30px_rgb(0,0,0,0.4)] rounded-full text-white flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-110 active:scale-95 transition-all group pointer-events-auto select-none touch-none history-card-drag-area no-canvas-intercept arrow-drag-button"
-                          title="拖动箭头：拖拽或拉扯虚线指定空白位置新建卡片"
+                    {layoutMode !== "bento" && layoutMode !== "semi_auto" && selectionRightPanelPosition && selectedIds.length > 0 && (() => {
+                      const magPos = getMagneticPosition() || {
+                        x: selectionRightPanelPosition.x + panelDragOffset.x,
+                        y: selectionRightPanelPosition.y + panelDragOffset.y,
+                      };
+                      const leftPos = (isDraggingArrow && arrowDragCurrentPos) ? arrowDragCurrentPos.x : magPos.x;
+                      const topPos = (isDraggingArrow && arrowDragCurrentPos) ? arrowDragCurrentPos.y : magPos.y;
+                      return (
+                        <div
+                          className="absolute z-[110] no-canvas-intercept arrow-drag-button"
+                          style={{
+                            left: `${leftPos}px`,
+                            top: `${topPos}px`,
+                            transform: `translate(-50%, -50%) scale(${1 / (transformState.scale || 1)})`,
+                            transformOrigin: "center center",
+                            pointerEvents: "auto",
+                          }}
                         >
-                          <ArrowRight className="w-5 h-5 text-gray-200 group-hover:text-white transition-transform group-hover:translate-x-0.5 duration-150" />
-                          
-                          {/* Pulsing indicator ring to show drag friendliness */}
-                          <div className="absolute inset-0 rounded-full border border-indigo-400/30 animate-ping opacity-75 scale-105 pointer-events-none" />
-                        </motion.div>
-                      </div>
-                    )}
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.6 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.6 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                            onPointerDown={handleArrowDragStart}
+                            onPointerMove={handleArrowDragMove}
+                            onPointerUp={handleArrowDragEnd}
+                            onPointerCancel={handleArrowDragEnd}
+                            className="w-12 h-12 bg-zinc-950/90 border-2 border-zinc-700 hover:border-indigo-500 shadow-[0_8px_30px_rgb(0,0,0,0.4)] rounded-full text-white flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-110 active:scale-95 transition-all group pointer-events-auto select-none touch-none history-card-drag-area no-canvas-intercept arrow-drag-button"
+                            title="拖动箭头：拖拽或拉扯虚线指定空白位置新建卡片"
+                          >
+                            <ArrowRight className="w-5 h-5 text-gray-200 group-hover:text-white transition-transform group-hover:translate-x-0.5 duration-150" />
+                            
+                            {/* Pulsing indicator ring to show drag friendliness */}
+                            <div className="absolute inset-0 rounded-full border border-indigo-400/30 animate-ping opacity-75 scale-105 pointer-events-none" />
+                          </motion.div>
+                        </div>
+                      );
+                    })()}
 
 
                   </div>
@@ -11463,127 +11971,105 @@ ${prompt}
 
     </div>
 
-      {/* Bottom Section: Floating Input Card - Fixed to Viewport Center-Bottom */}
-      <div className={cn(
-        "fixed bottom-12 left-0 right-0 z-[90] flex justify-center pointer-events-none transition-all duration-300 ease-in-out",
-        isSidebarOpen ? "left-[320px] md:left-[336px]" : "left-0 md:left-24"
-      )}>
-        <AnimatePresence mode="wait">
-          {isInputCardMinimized ? (
+      {/* Bottom Right AI Intent Console Button */}
+      <div className="fixed bottom-8 right-8 z-[100] pointer-events-none">
+        <AnimatePresence>
+          {isInputCardMinimized && (
             <motion.div
               key="minimized-capsule"
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
               transition={{ type: "spring", damping: 25, stiffness: 120 }}
-              className="pointer-events-auto px-4 w-[90vw] max-w-[640px]"
+              className="pointer-events-auto"
             >
               <div
-                onDoubleClick={(e) => {
+                onClick={(e) => {
                   e.stopPropagation();
                   setIsInputCardMinimized(false);
                   setIsCollabModeActive(true);
+                  setIsCollabCollapsed(false);
                   setCollabChatTargetId('xiaoluo_ai');
                   setCollabAiSkillRaw('general');
-                  setIsPromptMaximized(true);
                   setTimeout(() => {
                     textareaRef.current?.focus();
                   }, 150);
                 }}
-                className="w-full bg-white/95 backdrop-blur-md rounded-full h-[52px] px-5 shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.18)] border border-slate-200/60 hover:border-indigo-300 flex items-center justify-between text-gray-700 transition-all pointer-events-auto cursor-pointer group"
-                title="双击放大并使用意图解析，或直接点击输入"
+                className="bg-white/95 backdrop-blur-md rounded-2xl h-[52px] px-7 shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.18)] border border-slate-200/60 hover:border-indigo-300 flex items-center space-x-3 text-slate-700 transition-all cursor-pointer group active:scale-95 whitespace-nowrap"
+                title="打开AI意图控制台"
               >
-                <div className="flex items-center flex-1 min-w-0 h-full">
-                  <input
-                    type="text"
-                    className="flex-1 bg-transparent border-none outline-none focus:ring-0 text-slate-700 text-[13px] md:text-sm font-medium pl-1 pr-2 text-left h-full placeholder:text-slate-400 select-all"
-                    placeholder="输入想法、剧本或参考内容"
-                    value={collabAiInput}
-                    onChange={(e) => {
-                      setCollabAiInput(e.target.value);
-                    }}
-                    onFocus={(e) => {
-                      e.stopPropagation();
-                      setIsInputCardMinimized(false);
-                      setIsCollabModeActive(true);
-                      setCollabChatTargetId('xiaoluo_ai');
-                      setCollabAiSkillRaw('general');
-                      setTimeout(() => {
-                        textareaRef.current?.focus();
-                        if (textareaRef.current) {
-                          const len = textareaRef.current.value.length;
-                          textareaRef.current.setSelectionRange(len, len);
-                        }
-                      }, 100);
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                    }}
-                  />
-                </div>
-                <div 
-                  className="flex items-center space-x-2 flex-shrink-0 cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsInputCardMinimized(false);
-                    setIsCollabModeActive(true);
-                    setCollabChatTargetId('xiaoluo_ai');
-                    setCollabAiSkillRaw('general');
-                    setTimeout(() => {
-                      textareaRef.current?.focus();
-                    }, 100);
-                  }}
-                >
-                  <span className="hidden md:inline-block text-[10px] font-black text-indigo-500 tracking-wider bg-indigo-50 px-2 py-0.5 rounded-md transition-colors">
-                    小逻 AI
-                  </span>
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-pink-500/10 to-indigo-500/10 border border-indigo-100/40 group-hover:border-indigo-200 flex items-center justify-center text-indigo-500 group-hover:scale-105 transition-all">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                </div>
+                <PanelLeftOpen className="w-5 h-5 text-slate-700 group-hover:text-indigo-500 transition-colors" />
+                <span className="text-sm font-extrabold text-slate-700 group-hover:text-indigo-600 transition-colors tracking-wide select-none">
+                  AI意图控制台
+                </span>
               </div>
             </motion.div>
-          ) : (
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Bottom Section: Floating Input Card - Fixed to Viewport Center-Bottom */}
+      <div className="fixed top-0 right-0 h-full w-[450px] sm:w-[500px] md:w-[560px] z-[120] pointer-events-none flex justify-end">
+        <AnimatePresence mode="wait">
+          {!isInputCardMinimized && (
             <motion.div
               key="expanded-card"
-              className="px-8 w-full max-w-[1036px] pointer-events-auto relative"
-              initial={{ y: 100, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 100, opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 120 }}
+              className="w-full h-full bg-white border-l border-slate-150/80 flex flex-col shadow-[-16px_0_40px_rgba(0,0,0,0.06)] pointer-events-auto relative overflow-hidden"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 220 }}
             >
-              <div className="bg-white/90 backdrop-blur-3xl rounded-[40px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] border border-white/40 p-5 hover:shadow-[0_48px_80px_-20px_rgba(0,0,0,0.4)] transition-shadow duration-500 group/input-card relative">
-                {/* Minimize / Maximize Buttons inside Area (Red & Green Boxes) */}
-                {isCollabCollapsed && (
-                  <div className="absolute right-6 top-5 flex items-center space-x-2 z-[100]">
-                    {/* 最小化按钮 (Green Box) */}
-                    <button
-                      onClick={() => setIsInputCardMinimized(true)}
-                      className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center border border-slate-200/20 bg-white/50 backdrop-blur-sm cursor-pointer shadow-sm"
-                      title="最小化控制台"
-                    >
-                      <ChevronDown className="w-4 h-4 text-emerald-500" />
-                    </button>
+              {/* VibePaper Header (Figure 4 Style) */}
+              <div className="flex flex-col border-b border-slate-100 bg-white px-6 py-4 flex-shrink-0 relative z-[130]">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-1.5 bg-[#f5f2fd] rounded-xl border border-[#e3dbf8]">
+                      <Sparkles className="w-4 h-4 text-[#7c3aed]" />
+                    </div>
+                    <span className="font-sans font-extrabold text-[16px] text-slate-800 tracking-tight">
+                      AI意图控制台
+                    </span>
+                  </div>
 
-                    {/* 展开协同空间 (Red Box) - 对应图2的收起 */}
-                    <button
+                  <div className="flex items-center space-x-3">
+                    <button 
                       onClick={() => {
-                        setIsCollabCollapsed(false);
-                        setIsCollabModeActive(true);
+                        if (collabClearHistoryFnRef.current) {
+                          collabClearHistoryFnRef.current();
+                        }
                       }}
-                      className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center border border-slate-200/20 bg-white/50 backdrop-blur-sm cursor-pointer shadow-sm"
-                      title="展开协同空间"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-colors rounded-xl text-[11px] font-black border border-rose-100/20"
+                      title="清空对话记录"
                     >
-                      <Maximize2 className="w-4 h-4 text-indigo-500" />
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>清空记录</span>
+                    </button>
+                    <button 
+                      onClick={() => setIsInputCardMinimized(true)}
+                      className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                      title="收起对话"
+                    >
+                      <ChevronsRight className="w-4 h-4" />
                     </button>
                   </div>
-                )}
+                </div>
+                <div className="flex justify-end pr-1 mt-1">
+                  <span className="text-[10px] font-bold text-slate-400 tracking-wide select-none">
+                    收起对话
+                  </span>
+                </div>
+              </div>
 
-            <div className={cn("flex flex-col space-y-2", isCollabCollapsed && "pt-3")}>
-              {/* 协同空间整合 */}
-              {!isCollabCollapsed && (
-                <div 
-                  className="mb-3 rounded-t-[24px] rounded-b-none border border-gray-200/60 bg-white shadow-inner overflow-hidden h-[380px] flex flex-col z-[100] relative collab-panel no-canvas-intercept"
+              <div 
+                className="flex-1 overflow-visible flex flex-col min-h-0 bg-white relative p-4 space-y-3"
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {/* 协同空间整合 */}
+                {!isCollabCollapsed && (
+                  <div 
+                    className="flex-1 overflow-hidden flex flex-col z-[100] relative collab-panel no-canvas-intercept mb-2 bg-white"
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
@@ -11613,7 +12099,8 @@ ${prompt}
                       onRegisterSendRef={(fn) => { collabSendFnRef.current = fn; }}
                       onRegisterAppendMessageRef={(fn) => { collabAppendMessageFnRef.current = fn; }}
                       onRegisterInsertDividerRef={(fn) => { collabInsertDividerFnRef.current = fn; }}
-                      externalChatTargetId={collabChatTargetId}
+                      onRegisterClearHistoryRef={(fn) => { collabClearHistoryFnRef.current = fn; }}
+                      externalChatTargetId={(!isCollabModeActive || collabChatTargetId.endsWith('_ai')) ? 'xiaoluo_ai' : collabChatTargetId}
                       onExternalChatTargetChange={setCollabChatTargetId}
                       onGroupsFetched={setCollabGroups}
                       hideTopControls={true}
@@ -11623,10 +12110,6 @@ ${prompt}
                       onRegisterShowSkillsModal={(fn) => { collabShowSkillsModalFnRef.current = fn; }}
                       externalActiveSubTab={collabActiveSubTab}
                       onExternalActiveSubTabChange={setCollabActiveSubTab}
-                      onClose={() => {
-                        setIsCollabCollapsed(true);
-                        setIsCollabModeActive(false);
-                      }}
                       externalScriptType={scriptConfig.genre.id}
                       externalScriptAuthor={scriptConfig.author.name === "自定义" ? (scriptConfig.customAuthor || "自定义") : scriptConfig.author.name}
                       externalScriptLength={scriptConfig.length.id}
@@ -11638,80 +12121,83 @@ ${prompt}
                 </div>
               )}
 
-              {isCollabModeActive && collabQuote && (
-                <div className="w-full p-2.5 mb-2 bg-blue-50/60 dark:bg-zinc-850/40 border border-blue-100/60 dark:border-zinc-800/60 flex items-center justify-between rounded-2xl relative z-[98] shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200">
-                  <div className="flex items-center space-x-2.5 truncate">
-                    <Quote className="w-4 h-4 text-blue-500 animate-pulse" />
-                    <span className="text-xs text-blue-600 dark:text-blue-400 font-bold select-none">引用内容:</span>
-                    <div className="flex items-center gap-1.5 overflow-hidden max-w-[550px]">
-                      {collabQuote.type === 'image' && collabQuote.url && (
-                        <img src={collabQuote.url} className="w-6 h-6 object-cover rounded border border-black/10 shrink-0" referrerPolicy="no-referrer" />
-                      )}
-                      {collabQuote.type === 'video' && collabQuote.url && (
-                        <div className="w-6 h-6 rounded border border-black/10 shrink-0 bg-black relative flex items-center justify-center overflow-hidden">
-                          <PlayCircle className="w-4 h-4 text-white" />
-                        </div>
-                      )}
-                      {collabQuote.type === 'file' && (
-                        <div className="w-6 h-6 rounded bg-gray-100 border border-black/10 shrink-0 flex items-center justify-center text-[7px] font-black text-blue-600">
-                          DOC
-                        </div>
-                      )}
-                      <span className="text-xs text-gray-700 dark:text-gray-300 truncate font-semibold">
-                        {collabQuote.content || (collabQuote.type === 'image' ? '[图片]' : collabQuote.type === 'video' ? '[视频]' : '[文件]')}
-                      </span>
+
+              {/* Entire Input Section - Always anchored to the bottom */}
+              <div className="mt-auto flex flex-col space-y-3 flex-shrink-0 relative z-[135]">
+                {isCollabModeActive && collabQuote && (
+                  <div className="w-full p-2.5 mb-2 bg-blue-50/60 dark:bg-zinc-850/40 border border-blue-100/60 dark:border-zinc-800/60 flex items-center justify-between rounded-2xl relative z-[98] shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="flex items-center space-x-2.5 truncate">
+                      <Quote className="w-4 h-4 text-blue-500 animate-pulse" />
+                      <span className="text-xs text-blue-600 dark:text-blue-400 font-bold select-none">引用内容:</span>
+                      <div className="flex items-center gap-1.5 overflow-hidden max-w-[550px]">
+                        {collabQuote.type === 'image' && collabQuote.url && (
+                          <img src={collabQuote.url} className="w-6 h-6 object-cover rounded border border-black/10 shrink-0" referrerPolicy="no-referrer" />
+                        )}
+                        {collabQuote.type === 'video' && collabQuote.url && (
+                          <div className="w-6 h-6 rounded border border-black/10 shrink-0 bg-black relative flex items-center justify-center overflow-hidden">
+                            <PlayCircle className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        {collabQuote.type === 'file' && (
+                          <div className="w-6 h-6 rounded bg-gray-100 border border-black/10 shrink-0 flex items-center justify-center text-[7px] font-black text-blue-600">
+                            DOC
+                          </div>
+                        )}
+                        <span className="text-xs text-gray-700 dark:text-gray-300 truncate font-semibold">
+                          {collabQuote.content || (collabQuote.type === 'image' ? '[图片]' : collabQuote.type === 'video' ? '[视频]' : '[文件]')}
+                        </span>
+                      </div>
                     </div>
+                    <button onClick={() => setCollabQuote(null)} className="p-1 hover:bg-blue-100/50 dark:hover:bg-zinc-800/80 rounded-lg text-gray-400 hover:text-red-500 transition-all cursor-pointer">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <button onClick={() => setCollabQuote(null)} className="p-1 hover:bg-blue-100/50 dark:hover:bg-zinc-800/80 rounded-lg text-gray-400 hover:text-red-500 transition-all cursor-pointer">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
+                )}
 
-              {/* Uploaded Files Row (Visual confirmation of file upload above the input field) */}
-              {null}
+                {/* Uploaded Files Row (Visual confirmation of file upload above the input field) */}
+                {null}
 
-              <div className="flex items-start space-x-2">
-                {/* Reference Images Section (Left Side) */}
-                {(!(
-                  mode === "script" && scriptConfig.activeSubTab === "create"
-                ) || isCollabModeActive) && (
-                  <div
-                    className="relative w-16 h-[108px] flex-shrink-0"
-                    onMouseEnter={() => setIsReferenceHovered(true)}
-                    onMouseLeave={() => setIsReferenceHovered(false)}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                  >
+                <div className="flex items-start space-x-2">
+                  {/* Reference Images Section (Left Side) */}
+                  {(!(
+                    mode === "script" && scriptConfig.activeSubTab === "create"
+                  ) || isCollabModeActive) && (
                     <div
-                      className={cn(
-                        "relative transition-all duration-300 ease-in-out h-[108px] flex flex-col justify-center w-16",
-                        isReferenceHovered ? "z-[100]" : "",
-                      )}
+                      className="relative w-16 flex-shrink-0 transition-all h-[120px]"
+                      onMouseEnter={() => setIsReferenceHovered(true)}
+                      onMouseLeave={() => setIsReferenceHovered(false)}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
                     >
-                      <AnimatePresence mode="wait">
-                        {!isReferenceHovered ||
-                        (isCollabModeActive
-                          ? collabFilesCount === 0
-                          : mode === "video"
-                            ? (!videoConfig.referenceAssets ||
-                                videoConfig.referenceAssets.length === 0) &&
-                              !videoConfig.image &&
-                              !videoConfig.lastFrame
-                            : mode === "script" || mode === "director"
-                              ? !scriptConfig.referenceFile
-                              : !imageConfig.referenceImages ||
-                                imageConfig.referenceImages.length === 0) ? (
-                          <motion.button
-                            key="stack"
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            onClick={() => fileInputRef.current?.click()}
-                            className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center relative overflow-visible group cursor-pointer hover:bg-indigo-100/50 transition-all shadow-sm"
-                          >
-                            <Plus className="w-5 h-5 text-indigo-500 group-hover:scale-110 transition-transform" />
+                      <div
+                        className={cn(
+                          "relative transition-all duration-300 ease-in-out flex flex-col justify-center w-16 h-[120px]",
+                          isReferenceHovered ? "z-[100]" : "",
+                        )}
+                      >
+                        <AnimatePresence mode="wait">
+                          {!isReferenceHovered ||
+                          (isCollabModeActive
+                            ? collabFilesCount === 0
+                            : mode === "video"
+                              ? (!videoConfig.referenceAssets ||
+                                  videoConfig.referenceAssets.length === 0) &&
+                                !videoConfig.image &&
+                                !videoConfig.lastFrame
+                              : mode === "script" || mode === "director"
+                                ? !scriptConfig.referenceFile
+                                : !imageConfig.referenceImages ||
+                                  imageConfig.referenceImages.length === 0) ? (
+                            <motion.button
+                              key="stack"
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              onClick={() => fileInputRef.current?.click()}
+                              className="bg-indigo-50 border border-indigo-100 flex items-center justify-center relative overflow-visible group cursor-pointer hover:bg-indigo-100/50 transition-all shadow-sm w-16 h-16 rounded-2xl"
+                            >
+                              <Plus className="w-5 h-5 text-indigo-500 group-hover:scale-110 transition-transform" />
                             {/* Stack indicator count badge */}
                             {(() => {
                               const count =
@@ -12249,8 +12735,8 @@ ${prompt}
                 <motion.div
                   animate={{
                     x: isInputShaking ? [-10, 10, -10, 10, 0] : 0,
-                    height: isPromptMaximized ? 380 : 108,
-                    maxHeight: isPromptMaximized ? 380 : 108,
+                    height: 120,
+                    maxHeight: 120,
                   }}
                   transition={{
                     x: { duration: 0.4 },
@@ -12258,7 +12744,7 @@ ${prompt}
                     maxHeight: { duration: 0.22, ease: "easeOut" },
                   }}
                   className={cn(
-                    "flex-1 overflow-visible relative group/prompt rounded-2xl border transition-all duration-200 bg-[#fafafa] dark:bg-zinc-900",
+                    "flex-1 overflow-visible relative group/prompt rounded-2xl border transition-all duration-200 bg-[#fafafa] dark:bg-zinc-900 h-[120px] max-h-[120px]",
                     error === "请输入提示词"
                       ? "border-red-500 bg-red-50/30"
                       : "border-gray-200 focus-within:border-indigo-500 focus-within:bg-white focus-within:shadow-[0_4px_12px_rgba(99,102,241,0.06)]",
@@ -12267,8 +12753,7 @@ ${prompt}
                   <PromptWithMentions
                     textareaRef={textareaRef}
                     className={cn(
-                      "w-full border-none focus:ring-0 resize-none font-sans text-sm leading-6 tracking-normal antialiased placeholder:text-gray-300 disabled:opacity-50",
-                      isPromptMaximized ? "h-[376px] min-h-[370px]" : "h-[108px] min-h-[100px]"
+                      "w-full border-none focus:ring-0 resize-none font-sans text-sm leading-6 tracking-normal antialiased placeholder:text-gray-300 disabled:opacity-50 h-[116px] min-h-[110px]"
                     )}
                     paddingClasses="pt-3 pb-3 pr-3 pl-3"
                     fontSizeClass="text-sm"
@@ -12308,7 +12793,6 @@ ${prompt}
                             ? scriptConfig?.prompt
                             : imageConfig?.prompt) || ""
                     }
-                    onDoubleClick={() => setIsPromptMaximized(!isPromptMaximized)}
                     onChange={(e) => {
                       const value = e.target.value;
                       if (isCollabModeActive) {
@@ -12583,8 +13067,8 @@ ${prompt}
               </div>
 
               {/* Parameter Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-y-2 pt-2 border-t border-gray-50 relative z-[110]">
-                <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+              <div className="flex flex-col gap-y-2 pt-2 border-t border-gray-50 relative z-[135]">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full">
                   <div className="relative">
                     <button
                       onClick={() => setShowGenerationMenu(!showGenerationMenu)}
@@ -12682,138 +13166,128 @@ ${prompt}
 
                             <div className="h-px bg-gray-100 my-0.5 mx-1" />
 
-                            {/* Grouping Header: AI小逻 */}
-                            <div className="px-2 py-1 bg-slate-50/50 rounded-lg flex items-center gap-1.5">
-                              <Bot className="w-3.5 h-3.5 text-blue-500" />
-                              <span className="text-[10px] font-black text-blue-600 tracking-wider">小逻</span>
-                            </div>
+                            {/* 1. 问答对话 Chat */}
+                            <button
+                              onClick={() => {
+                                setShowGenerationMenu(false);
+                                setIsCollabModeActive(true);
+                                setIsCollabCollapsed(false);
+                                setCollabChatTargetId('xiaoluo_ai');
+                                setCollabAiSkill("general");
+                                setMode("script");
+                              }}
+                              className={cn(
+                                "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
+                                isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill === "general"
+                                  ? "bg-blue-50 text-blue-600"
+                                  : "hover:bg-blue-50/50 text-gray-700 hover:text-blue-600",
+                              )}
+                            >
+                              <div className="p-1.5 bg-blue-100 rounded-lg shrink-0">
+                                <Bot className="w-3.5 h-3.5 text-blue-500" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
+                                  <span>意图引导</span>
+                                  {isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill === "general" && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                  )}
+                                </p>
+                                <p className="text-[9px] text-blue-400 truncate">
+                                  拆解、分配、串联多个AI能力
+                                </p>
+                              </div>
+                            </button>
 
-                            {/* Sub items nested inside AI小逻 */}
-                            <div className="pl-2 border-l border-blue-100 ml-3.5 flex flex-col gap-1 max-h-80 overflow-y-auto custom-scrollbar">
-                              {/* 1. 问答对话 Chat */}
-                              <button
-                                onClick={() => {
-                                  setShowGenerationMenu(false);
-                                  setIsCollabModeActive(true);
-                                  setIsCollabCollapsed(false);
-                                  setCollabChatTargetId('xiaoluo_ai');
-                                  setCollabAiSkill("general");
-                                  setMode("script");
-                                }}
-                                className={cn(
-                                  "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
-                                  isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill === "general"
-                                    ? "bg-blue-50 text-blue-600"
-                                    : "hover:bg-blue-50/50 text-gray-700 hover:text-blue-600",
-                                )}
-                              >
-                                <div className="p-1.5 bg-blue-100 rounded-lg shrink-0">
-                                  <Bot className="w-3.5 h-3.5 text-blue-500" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
-                                    <span>意图解析</span>
-                                    {isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill === "general" && (
-                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                                    )}
-                                  </p>
-                                  <p className="text-[9px] text-blue-400 truncate">
-                                    拆解、分配、串联多个AI能力
-                                  </p>
-                                </div>
-                              </button>
+                            {/* 2. 灵境生图 */}
+                            <button
+                              onClick={() => {
+                                setShowGenerationMenu(false);
+                                setIsCollabModeActive(false);
+                                setIsCollabCollapsed(false);
+                                setMode("image");
+                              }}
+                              className={cn(
+                                "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
+                                !isCollabModeActive && mode === "image"
+                                  ? "bg-indigo-50 text-[#4f46e5]"
+                                  : "hover:bg-indigo-50/50 text-gray-700 hover:text-[#4f46e5]",
+                              )}
+                            >
+                              <div className="p-1.5 bg-indigo-100 rounded-lg shrink-0">
+                                <ImageIcon className="w-3.5 h-3.5 text-[#6366f1]" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-slate-800">
+                                  灵境生图
+                                </p>
+                                <p className="text-[9px] text-[#818cf8] truncate">
+                                  常规 AI 绘图模式
+                                </p>
+                              </div>
+                            </button>
 
-                              <div className="h-px bg-gray-100 my-0.5" />
+                            {/* 3. 灵境视频 */}
+                            <button
+                              onClick={() => {
+                                setShowGenerationMenu(false);
+                                setIsCollabModeActive(false);
+                                setIsCollabCollapsed(false);
+                                setMode("video");
+                                onVideoGenClick?.();
+                              }}
+                              className={cn(
+                                "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
+                                !isCollabModeActive && mode === "video"
+                                  ? "bg-purple-50 text-purple-600"
+                                  : "hover:bg-purple-50/50 text-gray-700 hover:text-purple-600",
+                              )}
+                            >
+                              <div className="p-1.5 bg-purple-100 rounded-lg shrink-0">
+                                <Film className="w-3.5 h-3.5 text-purple-500" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-slate-800">
+                                  灵境视频
+                                </p>
+                                <p className="text-[9px] text-purple-400 truncate">
+                                  高品质视频生成引擎
+                                </p>
+                              </div>
+                            </button>
 
-                              {/* 2. 灵境生图 */}
-                              <button
-                                onClick={() => {
-                                  setShowGenerationMenu(false);
-                                  setIsCollabModeActive(false);
-                                  setMode("image");
-                                }}
-                                className={cn(
-                                  "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
-                                  !isCollabModeActive && mode === "image"
-                                    ? "bg-indigo-50 text-[#4f46e5]"
-                                    : "hover:bg-indigo-50/50 text-gray-700 hover:text-[#4f46e5]",
-                                )}
-                              >
-                                <div className="p-1.5 bg-indigo-100 rounded-lg shrink-0">
-                                  <ImageIcon className="w-3.5 h-3.5 text-[#6366f1]" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-slate-800">
-                                    灵境生图
-                                  </p>
-                                  <p className="text-[9px] text-[#818cf8] truncate">
-                                    常规 AI 绘图模式
-                                  </p>
-                                </div>
-                              </button>
-
-                              {/* 3. 灵境视频 */}
-                              <button
-                                onClick={() => {
-                                  setShowGenerationMenu(false);
-                                  setIsCollabModeActive(false);
-                                  setMode("video");
-                                  onVideoGenClick?.();
-                                }}
-                                className={cn(
-                                  "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
-                                  !isCollabModeActive && mode === "video"
-                                    ? "bg-purple-50 text-purple-600"
-                                    : "hover:bg-purple-50/50 text-gray-700 hover:text-purple-600",
-                                )}
-                              >
-                                <div className="p-1.5 bg-purple-100 rounded-lg shrink-0">
-                                  <Film className="w-3.5 h-3.5 text-purple-500" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-slate-800">
-                                    灵境视频
-                                  </p>
-                                  <p className="text-[9px] text-purple-400 truncate">
-                                    高品质视频生成引擎
-                                  </p>
-                                </div>
-                              </button>
-
-                              {/* 4. 灵境创生 */}
-                              <button
-                                onClick={() => {
-                                  setShowGenerationMenu(false);
-                                  setIsCollabModeActive(true);
-                                  setIsCollabCollapsed(false);
-                                  setCollabChatTargetId('xiaoluo_ai');
-                                  setCollabAiSkill("createScript");
-                                  setMode("script");
-                                }}
-                                className={cn(
-                                  "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
-                                  isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill !== "general"
-                                    ? "bg-amber-50 text-amber-600"
-                                    : "hover:bg-amber-50/50 text-gray-700 hover:text-amber-600",
-                                )}
-                              >
-                                <div className="p-1.5 bg-amber-100 rounded-lg shrink-0">
-                                  <PenTool className="w-3.5 h-3.5 text-amber-500" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-                                    <span>灵境创生</span>
-                                    {isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill !== "general" && (
-                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                    )}
-                                  </p>
-                                  <p className="text-[9px] text-amber-500 truncate">
-                                    文案 剧本 策划等文本
-                                  </p>
-                                </div>
-                              </button>
-
-                            </div>
+                            {/* 4. 灵境创生 */}
+                            <button
+                              onClick={() => {
+                                setShowGenerationMenu(false);
+                                setIsCollabModeActive(true);
+                                setIsCollabCollapsed(false);
+                                setCollabChatTargetId('xiaoluo_ai');
+                                setCollabAiSkill("createScript");
+                                setMode("script");
+                              }}
+                              className={cn(
+                                "w-full flex items-center space-x-2.5 p-2 rounded-xl transition-colors text-left",
+                                isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill !== "general"
+                                  ? "bg-amber-50 text-amber-600"
+                                  : "hover:bg-amber-50/50 text-gray-700 hover:text-amber-600",
+                              )}
+                            >
+                              <div className="p-1.5 bg-amber-100 rounded-lg shrink-0">
+                                <PenTool className="w-3.5 h-3.5 text-amber-500" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                                  <span>灵境创生</span>
+                                  {isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill !== "general" && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                  )}
+                                </p>
+                                <p className="text-[9px] text-amber-500 truncate">
+                                  文案 剧本 策划等文本
+                                </p>
+                              </div>
+                            </button>
                           </motion.div>
                         </div>
                       )}
@@ -12885,14 +13359,14 @@ ${prompt}
                   )}
 
                   {(mode === "script" || mode === "director") && (!isCollabModeActive || (collabChatTargetId.endsWith('_ai') && collabAiSkill !== "general")) && (
-                    <div className="flex items-center space-x-2">
+                    <>
                       {/* Mode Select */}
                       {true && (
                         <div className="relative">
                           <button
                             onClick={() => setShowSubModeMenu(!showSubModeMenu)}
                             className={cn(
-                              "px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all",
+                              "px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all whitespace-nowrap",
                               isDirectorActive
                                 ? "bg-blue-100 text-blue-600 border border-blue-100"
                                 : "bg-amber-100 text-amber-600 border border-amber-100"
@@ -12953,8 +13427,8 @@ ${prompt}
                                             : (collabAiSkill === "shotPromptSkill" || collabAiSkill === "shot-prompt-skill" || collabAiSkill === "shot_prompt")
                                               ? "分镜提示词"
                                               : collabAiSkill === "general"
-                                                ? "意图解析"
-                                                : (workflowSkills.find(s => s.id === collabAiSkill || s.id === collabAiSkill?.replace(/Skill$/, "-skill"))?.name || "意图解析"))
+                                                ? "意图引导"
+                                                : (workflowSkills.find(s => s.id === collabAiSkill || s.id === collabAiSkill?.replace(/Skill$/, "-skill"))?.name || "意图引导"))
                                 : mode === "director"
                                   ? (directorConfig.generationMode === "prompt"
                                     ? "提示词"
@@ -12994,9 +13468,9 @@ ${prompt}
                                   {(() => {
                                     if (isCollabModeActive && collabChatTargetId.endsWith('_ai')) {
                                       if (collabAiSkill === "general") {
-                                        // 意图解析 mode: only show general intent skill
+                                        // 意图引导 mode: only show general intent skill
                                         return [
-                                          { id: "general", name: "意图解析", icon: Bot, isSystem: true, emoji: null }
+                                          { id: "general", name: "意图引导", icon: Bot, isSystem: true, emoji: null }
                                         ];
                                       } else {
                                         // 灵境创生 mode: show all text/script skills (transferred)
@@ -13057,7 +13531,7 @@ ${prompt}
                                     }
 
                                     const baseItems = [
-                                      { id: "xiaoluo_ai", name: "意图解析", icon: Bot, isSystem: true, emoji: null },
+                                      { id: "xiaoluo_ai", name: "意图引导", icon: Bot, isSystem: true, emoji: null },
                                     ];
                                     const customTextItems = workflowSkills
                                       .filter(s => {
@@ -13234,7 +13708,7 @@ ${prompt}
                       )}
 
                       {showSubModeOptions && getActiveSkillObj() && (
-                        <div className="flex items-center space-x-2">
+                        <>
                           {(() => {
                             const activeSkillObj = getActiveSkillObj()!;
                             if (activeSkillObj.id === "create-script" || activeSkillObj.id === "createScript") {
@@ -13248,7 +13722,7 @@ ${prompt}
                                         setActiveDropdownId(null);
                                         setShowLengthMenu(false);
                                       }}
-                                      className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100"
+                                      className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100 whitespace-nowrap"
                                     >
                                       <Sparkles className="w-3 h-3 text-amber-500" />
                                       <span>
@@ -13319,7 +13793,7 @@ ${prompt}
                                         setShowLengthMenu(false);
                                         setActiveDropdownId(null);
                                       }}
-                                      className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100"
+                                      className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100 whitespace-nowrap"
                                     >
                             <BookOpen className="w-3 h-3 text-amber-500" />
                             <span className="text-gray-400">风格：</span>
@@ -13519,7 +13993,7 @@ ${prompt}
                                         setShowGenreStyleMenu(false);
                                         setActiveDropdownId(null);
                                       }}
-                                      className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100"
+                                      className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100 whitespace-nowrap"
                                     >
                                       <Layers className="w-3 h-3 text-amber-500" />
                                       <span>篇幅 {scriptConfig.length.label}</span>
@@ -13638,11 +14112,11 @@ ${prompt}
 
                             return null;
                           })()}
-                        </div>
+                        </>
                       )}
 
                       {/* Duration removed as per user request */}
-                    </div>
+                    </>
                   )}
 
                   {isDirectorActive && (() => {
@@ -13655,62 +14129,124 @@ ${prompt}
                       <>
                         {/* Segments/段数 Selector */}
                         {!isAssetPromptSkill && (
-                          <div className="relative">
-                            <button
-                              onClick={() => {
-                                setShowDirectorSegmentsMenu(!showDirectorSegmentsMenu);
-                                setShowDirectorVisualStyleMenu(false);
-                                setShowDirectorStyleMenu(false);
-                              }}
-                              className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100"
-                            >
-                              <Layers className="w-3 h-3 text-amber-500" />
-                              <span>篇幅 {directorConfig.segments.label}</span>
-                              <ChevronDown
-                                className={cn(
-                                  "w-3 h-3 transition-transform",
-                                  showDirectorSegmentsMenu && "rotate-180",
+                          <>
+                            <div className="relative">
+                              <button
+                                onClick={() => {
+                                  setShowDirectorSegmentsMenu(!showDirectorSegmentsMenu);
+                                  setShowDirectorDurationMenu(false);
+                                  setShowDirectorVisualStyleMenu(false);
+                                  setShowDirectorStyleMenu(false);
+                                }}
+                                className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100 whitespace-nowrap"
+                              >
+                                <Layers className="w-3 h-3 text-amber-500" />
+                                <span>段数 {directorConfig.segments.label}</span>
+                                <ChevronDown
+                                  className={cn(
+                                    "w-3 h-3 transition-transform",
+                                    showDirectorSegmentsMenu && "rotate-180",
+                                  )}
+                                />
+                              </button>
+                              <AnimatePresence>
+                                {showDirectorSegmentsMenu && (
+                                  <div key="director-segments-menu">
+                                    <div
+                                      className="fixed inset-0 z-40"
+                                      onClick={() => setShowDirectorSegmentsMenu(false)}
+                                    />
+                                    <motion.div
+                                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      className="absolute bottom-full mb-2 left-0 z-50 w-32 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 max-h-48 overflow-y-auto custom-scrollbar"
+                                    >
+                                      {EPISODE_OPTIONS.map((opt) => (
+                                        <button
+                                          key={opt.id}
+                                          onClick={() => {
+                                            setDirectorConfig((prev) => ({
+                                              ...prev,
+                                              segments: opt,
+                                            }));
+                                            setShowDirectorSegmentsMenu(false);
+                                          }}
+                                          className={cn(
+                                            "w-full px-3 py-2 rounded-lg text-left text-[11px] transition-colors",
+                                            directorConfig.segments.id === opt.id
+                                              ? "bg-amber-50 text-amber-600 font-bold"
+                                              : "hover:bg-gray-50 text-gray-500",
+                                          )}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </motion.div>
+                                  </div>
                                 )}
-                              />
-                            </button>
-                            <AnimatePresence>
-                              {showDirectorSegmentsMenu && (
-                                <div key="director-segments-menu">
-                                  <div
-                                    className="fixed inset-0 z-40"
-                                    onClick={() => setShowDirectorSegmentsMenu(false)}
-                                  />
-                                  <motion.div
-                                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className="absolute bottom-full mb-2 left-0 z-50 w-32 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 max-h-48 overflow-y-auto custom-scrollbar"
-                                  >
-                                    {EPISODE_OPTIONS.map((opt) => (
-                                      <button
-                                        key={opt.id}
-                                        onClick={() => {
-                                          setDirectorConfig((prev) => ({
-                                            ...prev,
-                                            segments: opt,
-                                          }));
-                                          setShowDirectorSegmentsMenu(false);
-                                        }}
-                                        className={cn(
-                                          "w-full px-3 py-2 rounded-lg text-left text-[11px] transition-colors",
-                                          directorConfig.segments.id === opt.id
-                                            ? "bg-amber-50 text-amber-600 font-bold"
-                                            : "hover:bg-gray-50 text-gray-500",
-                                        )}
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    ))}
-                                  </motion.div>
-                                </div>
-                              )}
-                            </AnimatePresence>
-                          </div>
+                              </AnimatePresence>
+                            </div>
+
+                            {/* Duration/时长 Selector */}
+                            <div className="relative">
+                              <button
+                                onClick={() => {
+                                  setShowDirectorDurationMenu(!showDirectorDurationMenu);
+                                  setShowDirectorSegmentsMenu(false);
+                                  setShowDirectorVisualStyleMenu(false);
+                                  setShowDirectorStyleMenu(false);
+                                }}
+                                className="px-3 py-1.5 text-[11px] font-bold flex items-center space-x-1 rounded-xl transition-all text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-100 whitespace-nowrap"
+                              >
+                                <Clock className="w-3 h-3 text-indigo-500" />
+                                <span>时长 {directorConfig.segmentDuration.label}</span>
+                                <ChevronDown
+                                  className={cn(
+                                    "w-3 h-3 transition-transform",
+                                    showDirectorDurationMenu && "rotate-180",
+                                  )}
+                                />
+                              </button>
+                              <AnimatePresence>
+                                {showDirectorDurationMenu && (
+                                  <div key="director-duration-menu">
+                                    <div
+                                      className="fixed inset-0 z-40"
+                                      onClick={() => setShowDirectorDurationMenu(false)}
+                                    />
+                                    <motion.div
+                                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      className="absolute bottom-full mb-2 left-0 z-50 w-32 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 max-h-48 overflow-y-auto custom-scrollbar"
+                                    >
+                                      {SEGMENT_DURATION_OPTIONS.map((opt) => (
+                                        <button
+                                          key={opt.id}
+                                          onClick={() => {
+                                            setDirectorConfig((prev) => ({
+                                              ...prev,
+                                              segmentDuration: opt,
+                                            }));
+                                            setShowDirectorDurationMenu(false);
+                                          }}
+                                          className={cn(
+                                            "w-full px-3 py-2 rounded-lg text-left text-[11px] transition-colors",
+                                            directorConfig.segmentDuration.id === opt.id
+                                              ? "bg-indigo-50 text-indigo-600 font-bold"
+                                              : "hover:bg-gray-50 text-gray-500",
+                                          )}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </motion.div>
+                                  </div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          </>
                         )}
 
                         {/* Visual Style Selector */}
@@ -13888,9 +14424,9 @@ ${prompt}
                                 ];
                                 const customTextModels = customModels
                                   .filter((m: any) => m.type === "text" || m.type === "all" || !m.type)
-                                  .map((m: any) => ({
-                                    id: m.model,
-                                    name: m.name || m.model,
+                                  .map((m: any, idx: number) => ({
+                                    id: m.model || m.id || m.name || `custom-text-${idx}`,
+                                    name: m.name || m.model || "Unnamed Model",
                                     icon: Cpu,
                                     endpoint: m.endpoint,
                                     apiKey: m.apiKey,
@@ -14020,7 +14556,7 @@ ${prompt}
                                   className="absolute bottom-full mb-2 left-0 z-50 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 flex flex-col gap-1 max-h-96 overflow-y-auto custom-scrollbar"
                                 >
                                   <div className="text-[10px] font-black text-gray-400 px-3 py-1.5 border-b border-gray-50 flex items-center justify-between">
-                                    <span>全部技能与插件</span>
+                                    <span>全部模式与插件</span>
                                     <span className="text-[9px] font-normal text-gray-400">选择一项启用</span>
                                   </div>
 
@@ -14063,7 +14599,7 @@ ${prompt}
                                     </div>
 
                                     {/* Camera Control Skill */}
-                                    {(() => {
+                                    {getPluginCategory('camera-control') === 'image' && (() => {
                                       const isSelected = !!cameraParams;
                                       return (
                                         <div key="skill-camera-control" className="relative">
@@ -14187,7 +14723,7 @@ ${prompt}
                                               </div>
                                               <div>
                                                 <p className="text-[11px] font-bold">{customSkill.name}</p>
-                                                <p className="text-[9px] text-gray-400">{customSkill.desc || "自定义工作流辅助技能"}</p>
+                                                <p className="text-[9px] text-gray-400">{customSkill.desc || "自定义工作流辅助模式"}</p>
                                               </div>
                                             </div>
                                             {isSelected && <Check className="w-3.5 h-3.5 text-purple-500 shrink-0" />}
@@ -14205,60 +14741,100 @@ ${prompt}
                                     </div>
 
                                     {/* Plugins List */}
-                                    {GRID_MODES.filter(m => m.value === 'perspective-sim' || m.value === 'point-and-shoot').map(item => {
-                                      const pluginVal = item.value;
-                                      const isSelected = imageConfig?.gridMode === pluginVal;
-                                      return (
-                                        <div key={`plugin-${pluginVal}`} className="relative group">
-                                          <button
-                                            onClick={() => {
-                                              if (pluginVal === "perspective-sim") {
-                                                setShowPerspectiveSim(true);
-                                              } else if (pluginVal === "point-and-shoot") {
-                                                const modePrompt = item.prompt;
-                                                setImageConfig(prev => ({
-                                                  ...prev,
-                                                  gridMode: "point-and-shoot",
-                                                  prompt: prev.prompt && prev.prompt.trim() !== "" ? prev.prompt : modePrompt,
-                                                }));
-                                                setShowPointAndShootEditor(true);
-                                              }
-                                              setShowSkillsDropdown(false);
-                                            }}
-                                            className={cn(
-                                              "w-full px-3 py-2 rounded-xl text-left transition-colors flex items-center justify-between",
-                                              isSelected ? "bg-indigo-50 text-indigo-700" : "hover:bg-gray-50 text-gray-700"
-                                            )}
-                                          >
-                                            <div className="flex items-center space-x-2.5">
-                                              <div className={cn("p-1.5 rounded-lg", isSelected ? "bg-indigo-100/60" : "bg-gray-100")}>
-                                                {item.icon}
-                                              </div>
-                                              <div>
-                                                <p className="text-[11px] font-bold">{item.label}</p>
-                                                <p className="text-[9px] text-gray-400">{item.desc || "高级画面布局生成插件"}</p>
-                                              </div>
-                                            </div>
-                                            <div className="flex items-center space-x-1.5">
-                                              {pluginVal === "point-and-shoot" && isSelected && (
-                                                <span
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setShowPointAndShootEditor(true);
-                                                    setShowSkillsDropdown(false);
-                                                  }}
-                                                  className="p-1 hover:bg-red-100 rounded text-red-500"
-                                                  title="重新编辑"
-                                                >
-                                                  <Settings2 className="w-3 h-3" />
-                                                </span>
+                                    {(() => {
+                                      const imagePlugins = [
+                                        {
+                                          id: "perspective-sim",
+                                          name: "3D导演台",
+                                          icon: <Box className="w-3 h-3 text-blue-500" />,
+                                          desc: "精准控制3D场景与角色位置",
+                                          onClick: () => {
+                                            setShowPerspectiveSim(true);
+                                          },
+                                          isSelected: !!showPerspectiveSim,
+                                        },
+                                        {
+                                          id: "point-and-shoot",
+                                          name: "指哪打哪",
+                                          icon: <Target className="w-3 h-3 text-red-500" />,
+                                          desc: "在场景中标记人物位置",
+                                          onClick: () => {
+                                            const modePrompt = "图1是角色，请根据图2的构图比例进行构图，角色是图2的红色块位置";
+                                            setImageConfig(prev => ({
+                                              ...prev,
+                                              gridMode: "point-and-shoot",
+                                              prompt: prev.prompt && prev.prompt.trim() !== "" ? prev.prompt : modePrompt,
+                                            }));
+                                            setShowPointAndShootEditor(true);
+                                          },
+                                          isSelected: imageConfig?.gridMode === "point-and-shoot",
+                                          hasSettings: true,
+                                        },
+                                        {
+                                          id: "camera-control",
+                                          name: "相机调整",
+                                          icon: <Camera className="w-3.5 h-3.5 text-purple-500" />,
+                                          desc: "配置专业拍摄与运镜参数",
+                                          onClick: () => {
+                                            setShowCameraControl(true);
+                                          },
+                                          isSelected: !!cameraParams,
+                                        }
+                                      ].filter(p => getPluginCategory(p.id) === 'image');
+
+                                      if (imagePlugins.length === 0) {
+                                        return (
+                                          <div className="px-3 py-2 text-[9px] text-gray-400 text-center italic">
+                                            暂无可用图片插件
+                                          </div>
+                                        );
+                                      }
+
+                                      return imagePlugins.map(item => {
+                                        const pluginVal = item.id;
+                                        const isSelected = item.isSelected;
+                                        return (
+                                          <div key={`plugin-${pluginVal}`} className="relative group">
+                                            <button
+                                              onClick={() => {
+                                                item.onClick();
+                                                setShowSkillsDropdown(false);
+                                              }}
+                                              className={cn(
+                                                "w-full px-3 py-2 rounded-xl text-left transition-colors flex items-center justify-between",
+                                                isSelected ? "bg-indigo-50 text-indigo-700" : "hover:bg-gray-50 text-gray-700"
                                               )}
-                                              {isSelected && <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
-                                            </div>
-                                          </button>
-                                        </div>
-                                      );
-                                    })}
+                                            >
+                                              <div className="flex items-center space-x-2.5">
+                                                <div className={cn("p-1.5 rounded-lg", isSelected ? "bg-indigo-100/60" : "bg-gray-100")}>
+                                                  {item.icon}
+                                                </div>
+                                                <div>
+                                                  <p className="text-[11px] font-bold">{item.name}</p>
+                                                  <p className="text-[9px] text-gray-400">{item.desc}</p>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center space-x-1.5">
+                                                {item.hasSettings && isSelected && (
+                                                  <span
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setShowPointAndShootEditor(true);
+                                                      setShowSkillsDropdown(false);
+                                                    }}
+                                                    className="p-1 hover:bg-red-100 rounded text-red-500"
+                                                    title="重新编辑"
+                                                  >
+                                                    <Settings2 className="w-3 h-3" />
+                                                  </span>
+                                                )}
+                                                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
+                                              </div>
+                                            </button>
+                                          </div>
+                                        );
+                                      });
+                                     })()}
                                   </div>
                                 </motion.div>
                               </div>
@@ -14450,7 +15026,7 @@ ${prompt}
                                 setShowAspectRatioMenu(!showAspectRatioMenu)
                               }
                               className={cn(
-                                "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1",
+                                "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1 whitespace-nowrap",
                                 showAspectRatioMenu
                                   ? "bg-indigo-50 text-indigo-600"
                                   : "bg-gray-50 text-gray-500 hover:bg-gray-100",
@@ -14667,7 +15243,7 @@ ${prompt}
                                 className="absolute bottom-full mb-2 left-0 z-50 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 flex flex-col gap-1 max-h-96 overflow-y-auto custom-scrollbar"
                               >
                                 <div className="text-[10px] font-black text-gray-400 px-3 py-1.5 border-b border-gray-50 flex items-center justify-between">
-                                  <span>全部视频技能与插件</span>
+                                  <span>全部视频模式与插件</span>
                                   <span className="text-[9px] font-normal text-gray-400">选择一项启用</span>
                                 </div>
 
@@ -14698,7 +15274,7 @@ ${prompt}
                                           </div>
                                           <div>
                                             <p className="text-[11px] font-bold">无</p>
-                                            <p className="text-[9px] text-gray-400 font-normal">不启用任何视频技能及插件</p>
+                                            <p className="text-[9px] text-gray-400 font-normal">不启用任何视频模式及插件</p>
                                           </div>
                                         </div>
                                         {isNoneSelected && <Check className="w-3.5 h-3.5 text-orange-500 shrink-0" />}
@@ -14715,7 +15291,7 @@ ${prompt}
                                   </div>
 
                                   {/* Camera Control Skill */}
-                                  {(() => {
+                                  {getPluginCategory("camera-control") === "video" && (() => {
                                     const isSelected = !!cameraParams;
                                     return (
                                       <div key="video-skill-camera-control" className="relative">
@@ -14793,7 +15369,7 @@ ${prompt}
                                             </div>
                                             <div>
                                               <p className="text-[11px] font-bold">{customSkill.name}</p>
-                                              <p className="text-[9px] text-gray-400">{customSkill.desc || "自定义视频工作流辅助技能"}</p>
+                                              <p className="text-[9px] text-gray-400">{customSkill.desc || "自定义视频工作流辅助模式"}</p>
                                             </div>
                                           </div>
                                           {isSelected && <Check className="w-3.5 h-3.5 text-purple-500 shrink-0" />}
@@ -14809,9 +15385,100 @@ ${prompt}
                                     <span>我的插件</span>
                                     <span className="text-[8px] font-normal text-amber-500 font-mono">PLUGINS</span>
                                   </div>
-                                  <div className="px-3 py-2 text-[9px] text-gray-400 text-center italic">
-                                    暂无可用视频插件
-                                  </div>
+                                  {(() => {
+                                    const videoPlugins = [
+                                      {
+                                        id: "perspective-sim",
+                                        name: "3D导演台",
+                                        icon: <Box className="w-3 h-3 text-blue-500" />,
+                                        desc: "精准控制3D场景与角色位置",
+                                        onClick: () => {
+                                          setShowPerspectiveSim(true);
+                                        },
+                                        isSelected: !!showPerspectiveSim,
+                                      },
+                                      {
+                                        id: "point-and-shoot",
+                                        name: "指哪打哪",
+                                        icon: <Target className="w-3 h-3 text-red-500" />,
+                                        desc: "在场景中标记人物位置",
+                                        onClick: () => {
+                                          const modePrompt = "图1是角色，请根据图2的构图比例进行构图，角色是图2的红色块位置";
+                                          setImageConfig(prev => ({
+                                            ...prev,
+                                            gridMode: "point-and-shoot",
+                                            prompt: prev.prompt && prev.prompt.trim() !== "" ? prev.prompt : modePrompt,
+                                          }));
+                                          setShowPointAndShootEditor(true);
+                                        },
+                                        isSelected: imageConfig?.gridMode === "point-and-shoot",
+                                        hasSettings: true,
+                                      },
+                                      {
+                                        id: "camera-control",
+                                        name: "相机调整",
+                                        icon: <Camera className="w-3.5 h-3.5 text-purple-500" />,
+                                        desc: "配置专业拍摄与运镜参数",
+                                        onClick: () => {
+                                          setShowCameraControl(true);
+                                        },
+                                        isSelected: !!cameraParams,
+                                      }
+                                    ].filter(p => getPluginCategory(p.id) === "video");
+
+                                    if (videoPlugins.length === 0) {
+                                      return (
+                                        <div className="px-3 py-2 text-[9px] text-gray-400 text-center italic">
+                                          暂无可用视频插件
+                                        </div>
+                                      );
+                                    }
+
+                                    return videoPlugins.map(item => {
+                                      const pluginVal = item.id;
+                                      const isSelected = item.isSelected;
+                                      return (
+                                        <div key={`video-plugin-${pluginVal}`} className="relative group">
+                                          <button
+                                            onClick={() => {
+                                              item.onClick();
+                                              setShowSkillsDropdown(false);
+                                            }}
+                                            className={cn(
+                                              "w-full px-3 py-2 rounded-xl text-left transition-colors flex items-center justify-between",
+                                              isSelected ? "bg-indigo-50 text-indigo-700" : "hover:bg-gray-50 text-gray-700"
+                                            )}
+                                          >
+                                            <div className="flex items-center space-x-2.5">
+                                              <div className={cn("p-1.5 rounded-lg", isSelected ? "bg-indigo-100/60" : "bg-gray-100")}>
+                                                {item.icon}
+                                              </div>
+                                              <div>
+                                                <p className="text-[11px] font-bold">{item.name}</p>
+                                                <p className="text-[9px] text-gray-400">{item.desc}</p>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center space-x-1.5">
+                                              {item.hasSettings && isSelected && (
+                                                <span
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setShowPointAndShootEditor(true);
+                                                    setShowSkillsDropdown(false);
+                                                  }}
+                                                  className="p-1 hover:bg-red-100 rounded text-red-500"
+                                                  title="重新编辑"
+                                                >
+                                                  <Settings2 className="w-3 h-3" />
+                                                </span>
+                                              )}
+                                              {isSelected && <Check className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
+                                            </div>
+                                          </button>
+                                        </div>
+                                      );
+                                    });
+                                  })()}
                                 </div>
                               </motion.div>
                             </div>
@@ -14826,9 +15493,9 @@ ${prompt}
                         {(() => {
                           const customVideoModels = customModels
                             .filter((m: any) => m.type === "video" || m.type === "all")
-                            .map((m: any) => ({
-                              label: m.name || m.model,
-                              value: m.model,
+                            .map((m: any, idx: number) => ({
+                              label: m.name || m.model || "Unnamed Video Model",
+                              value: m.model || m.id || m.name || `custom-video-${idx}`,
                             }));
                           const allVideoModels = [...VIDEO_MODELS, ...customVideoModels]
                             .filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
@@ -14904,7 +15571,7 @@ ${prompt}
                       <button
                         onClick={() => setShowVideoModeMenu(!showVideoModeMenu)}
                         className={cn(
-                          "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1",
+                          "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1 whitespace-nowrap",
                           showVideoModeMenu
                             ? "bg-purple-50 text-purple-600"
                             : "bg-gray-50 text-gray-500 hover:bg-gray-100",
@@ -14912,7 +15579,7 @@ ${prompt}
                       >
                         <Layers className="w-3 h-3" />
                         <span>
-                          技能{" "}
+                          模式{" "}
                           {VIDEO_MODES[
                             videoConfig?.model || "seedance2.0"
                           ]?.find(
@@ -14980,7 +15647,7 @@ ${prompt}
                         <button
                           onClick={() => setShowDurationMenu(!showDurationMenu)}
                           className={cn(
-                            "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1",
+                            "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1 whitespace-nowrap",
                             showDurationMenu
                               ? "bg-purple-50 text-purple-600"
                               : "bg-gray-50 text-gray-500 hover:bg-gray-100",
@@ -15051,7 +15718,7 @@ ${prompt}
                             setShowAspectRatioMenu(!showAspectRatioMenu)
                           }
                           className={cn(
-                            "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1",
+                            "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center space-x-1 whitespace-nowrap",
                             showAspectRatioMenu
                               ? "bg-purple-50 text-purple-600"
                               : "bg-gray-50 text-gray-500 hover:bg-gray-100",
@@ -15177,8 +15844,8 @@ ${prompt}
                   )}
                 </div>
 
-                <div className="flex items-center space-x-3 shrink-0 ml-auto">
-                  {(!isCollabModeActive || collabChatTargetId.endsWith('_ai')) && (
+                <div className="flex items-center justify-between w-full border-t border-gray-100/50 pt-2 mt-1 z-10">
+                  {(!isCollabModeActive || collabChatTargetId.endsWith('_ai')) ? (
                     <div className="flex items-center space-x-2">
                       <div className="flex items-center space-x-1 text-[11px] font-black text-amber-600 bg-amber-50/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-amber-200/50 shadow-sm">
                         <Zap className="w-3 h-3 fill-amber-500" />
@@ -15214,9 +15881,11 @@ ${prompt}
                         </span>
                       </div>
                     </div>
+                  ) : (
+                    <div />
                   )}
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 ml-auto">
                     {isCollabModeActive && collabChatTargetId.endsWith('_ai') && collabAiSkill === "general" && (
                       <button
                         type="button"
@@ -15341,12 +16010,12 @@ ${prompt}
                   </div>
                 </div>
               )}
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
         )}
-        </AnimatePresence>
-      </div>
+      </AnimatePresence>
+    </div>
 
       <AnimatePresence>
         {showPointAndShootEditor && (
@@ -15715,330 +16384,7 @@ ${prompt}
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {false && isPromptMaximized && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 bg-black/60 backdrop-blur-md"
-            onClick={() => {
-              setIsPromptMaximized(false);
-              setShowMentions(false);
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="w-full max-w-4xl h-[580px] md:h-[640px] max-h-[85vh] bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-6 border-bottom border-gray-100 flex items-center justify-between bg-gray-50/50">
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-indigo-100 rounded-2xl text-indigo-600">
-                    <Maximize2 className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black text-gray-900">
-                      放大提示词输入
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      更清晰地编辑您的创作灵感
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setIsPromptMaximized(false);
-                    setShowMentions(false);
-                  }}
-                  className="p-2 hover:bg-gray-200 rounded-full text-gray-400 transition-colors"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
 
-               <div className="flex-1 p-8 relative flex flex-col min-h-0">
-                <div className="w-full h-full p-8 bg-gray-50 rounded-[32px] border-2 border-gray-100 focus-within:border-indigo-500 focus-within:ring-0 transition-all shadow-inner relative flex flex-col min-h-0 overflow-hidden">
-                  <PromptWithMentions
-                    textareaRef={maximizedTextareaRef}
-                    className="w-full h-full bg-transparent border-none focus:ring-0 resize-none font-sans text-xl leading-relaxed text-gray-700 placeholder:text-gray-300"
-                    paddingClasses="p-0"
-                    fontSizeClass="text-xl"
-                    lineHeightClass="leading-relaxed"
-                    assets={getMentionableAssets()}
-                    placeholder={
-                      mode === "video"
-                        ? "请输入你想生成的视频描述... (输入 @ 引用历史素材)"
-                        : mode === "script"
-                          ? scriptConfig.activeSubTab === "create"
-                            ? scriptConfig.creationType === "continue"
-                              ? "请粘贴您已有的剧本内容，并在末尾或开头描述您的续写方向、要求或剧情反转..."
-                              : "请输入剧本主题或大纲..."
-                            : "请输入你想生成的剧本描述... (输入 @ 引用历史素材)"
-                          : GRID_MODES.find(
-                              (m) =>
-                                m.value === (imageConfig?.gridMode || "none"),
-                            )?.placeholder ||
-                            "请输入你想生成的图片描述... (输入 @ 引用历史素材)"
-                    }
-                    value={
-                      (mode === "video"
-                        ? videoConfig?.prompt
-                        : mode === "script"
-                          ? scriptConfig?.prompt
-                          : imageConfig?.prompt) || ""
-                    }
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      const cursorPos = e.target.selectionStart;
-                      const textBeforeCursor = value.slice(0, cursorPos);
-                      let bindingMatch = textBeforeCursor.match(
-                        /(图|历史图|音频|视频)(\d+)\s*@$/,
-                      );
-                      if (bindingMatch) {
-                        const matchIndex = bindingMatch.index || 0;
-                        const precedingStr = textBeforeCursor.slice(
-                          0,
-                          matchIndex,
-                        );
-                        const lastSpaceIdx = Math.max(
-                          precedingStr.lastIndexOf(" "),
-                          precedingStr.lastIndexOf("\n"),
-                        );
-                        const wordStart =
-                          lastSpaceIdx === -1
-                            ? precedingStr
-                            : precedingStr.slice(lastSpaceIdx + 1);
-                        if (
-                          wordStart.includes("@") ||
-                          wordStart.startsWith("@")
-                        ) {
-                          bindingMatch = null;
-                        }
-                      }
-                      const reverseBindingMatch =
-                        textBeforeCursor.match(/([^\s=@]+)=@$/);
-                      const mentionMatch = textBeforeCursor.match(/@([^@\s]*)$/);
-
-                      if (mode === "video") {
-                        if (videoConfig)
-                          setVideoConfig({ ...videoConfig, prompt: value });
-                      } else if (mode === "script" || mode === "director") {
-                        setScriptConfig((prev) => ({ ...prev, prompt: value }));
-                      } else {
-                        if (imageConfig)
-                          setImageConfig({ ...imageConfig, prompt: value });
-                      }
-
-                      if (bindingMatch || reverseBindingMatch || mentionMatch) {
-                        const search = mentionMatch ? mentionMatch[1] : "";
-                        setMentionSearch(search);
-                        setShowMentions(true);
-                        setSelectedMentionIndex(0);
-                      } else {
-                        setShowMentions(false);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (showMentions) {
-                        const isScript = mode === "script" || mode === "director";
-                        const isVideo = mode === "video";
-                        const value = isVideo
-                          ? videoConfig?.prompt || ""
-                          : isScript
-                            ? scriptConfig?.prompt || ""
-                            : imageConfig?.prompt || "";
-                        const cursorPos =
-                          maximizedTextareaRef.current?.selectionStart || 0;
-                        const { orderedAssets } = getFilteredOrderedAssets(value, cursorPos);
-
-                        if (e.key === "ArrowDown") {
-                          e.preventDefault();
-                          setSelectedMentionIndex(
-                            (prev) => (prev + 1) % (orderedAssets.length || 1),
-                          );
-                        } else if (e.key === "ArrowUp") {
-                          e.preventDefault();
-                          setSelectedMentionIndex(
-                            (prev) =>
-                              (prev - 1 + (orderedAssets.length || 1)) % (orderedAssets.length || 1),
-                          );
-                        } else if (e.key === "Enter" || e.key === "Tab") {
-                          e.preventDefault();
-                          if (orderedAssets[selectedMentionIndex]) {
-                            handleMentionSelect(orderedAssets[selectedMentionIndex]);
-                          }
-                        } else if (e.key === "Escape") {
-                          setShowMentions(false);
-                        }
-                        return;
-                      }
-                    }}
-                  />
-                </div>
-
-                {/* Mention Suggestions inside Maximized Modal */}
-                <AnimatePresence>
-                  {showMentions && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="absolute bottom-12 left-12 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-[110]"
-                    >
-                      <div className="p-2 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          引用历史素材
-                        </span>
-                        <span className="text-[9px] text-gray-300">
-                          ↑↓ 选择, Enter 确认
-                        </span>
-                      </div>
-                      <div className="max-h-64 overflow-y-auto p-1.5 text-slate-800">
-                        {(() => {
-                          const isScript = mode === "script" || mode === "director";
-                          const isVideo = mode === "video";
-                          const value = isVideo
-                            ? videoConfig?.prompt || ""
-                            : isScript
-                              ? scriptConfig?.prompt || ""
-                              : imageConfig?.prompt || "";
-                          const cursorPos =
-                            maximizedTextareaRef.current?.selectionStart || 0;
-                          const { orderedAssets, groupRanges } = getFilteredOrderedAssets(value, cursorPos);
-
-                          if (orderedAssets.length === 0) {
-                            return (
-                              <div className="p-4 text-center text-xs text-gray-400">
-                                未找到匹配素材
-                              </div>
-                            );
-                          }
-
-                          let globalIdx = 0;
-                          return groupRanges.map((group) => (
-                            <div key={group.name} className="flex flex-col">
-                              <div className="px-2 py-1 text-[10px] font-black text-indigo-500 bg-indigo-50/40 rounded my-1 select-none uppercase tracking-widest">
-                                {group.name}
-                              </div>
-                              {group.items.map((asset) => {
-                                const idx = globalIdx++;
-                                return (
-                                  <button
-                                    key={asset.id}
-                                    onClick={() => handleMentionSelect(asset)}
-                                    onMouseEnter={() => setSelectedMentionIndex(idx)}
-                                    className={cn(
-                                      "w-full flex items-center space-x-2.5 p-1.5 rounded-lg transition-all text-left",
-                                      selectedMentionIndex === idx
-                                        ? "bg-indigo-50 text-indigo-700"
-                                        : "hover:bg-gray-50 text-gray-650",
-                                    )}
-                                  >
-                                    <div className="w-8 h-8 rounded-md bg-gray-100 overflow-hidden flex-shrink-0 border border-gray-100 flex items-center justify-center">
-                                      {(() => {
-                                        const thumb = getThumbnailUrl(
-                                          asset.imageUrl ||
-                                            asset.videoUrl ||
-                                            asset.ossUrl,
-                                        );
-                                        if (thumb) {
-                                          const isVideoAsset =
-                                            asset.type === "video" ||
-                                            (asset.videoUrl && !asset.imageUrl) ||
-                                            (typeof thumb === "string" && (
-                                              thumb.toLowerCase().endsWith(".mp4") ||
-                                              thumb.toLowerCase().endsWith(".mov") ||
-                                              thumb.toLowerCase().endsWith(".webm") ||
-                                              thumb.includes("video")
-                                            ));
-                                          if (isVideoAsset) {
-                                            const videoSrc = thumb.includes("#") ? thumb : `${thumb}#t=0.1`;
-                                            return (
-                                              <video
-                                                src={videoSrc}
-                                                className="w-full h-full object-cover"
-                                                muted
-                                                playsInline
-                                                preload="metadata"
-                                              />
-                                            );
-                                          }
-                                          return (
-                                            <img
-                                              src={thumb}
-                                              alt={asset.label}
-                                              className="w-full h-full object-cover object-top"
-                                              referrerPolicy="no-referrer"
-                                            />
-                                          );
-                                        }
-
-                                        // Fallback icons
-                                        if (
-                                          asset.type === "character" ||
-                                          asset.type === "character_asset"
-                                        )
-                                          return (
-                                            <User className="w-4 h-4 text-indigo-500" />
-                                          );
-                                        if (asset.type === "scene")
-                                          return (
-                                            <Camera className="w-4 h-4 text-gray-400" />
-                                          );
-                                        if (asset.type === "prop")
-                                          return (
-                                            <Box className="w-4 h-4 text-gray-400" />
-                                          );
-                                        if (asset.type === "video")
-                                          return (
-                                            <Film className="w-4 h-4 text-gray-400" />
-                                          );
-                                        return (
-                                          <ImageIcon className="w-4 h-4 text-gray-400" />
-                                        );
-                                      })()}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-[11px] font-bold truncate">
-                                        @{asset.label}
-                                      </div>
-                                      <div className="text-[9px] opacity-60 truncate">
-                                        {asset.description ||
-                                          asset.revisedPrompt ||
-                                          (asset.config as any)?.prompt ||
-                                          "无描述"}
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ));
-                        })()}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className="p-6 bg-gray-50/50 border-t border-gray-100 flex justify-end">
-                <button
-                  onClick={() => {
-                    setIsPromptMaximized(false);
-                    setShowMentions(false);
-                  }}
-                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95"
-                >
-                  完成编辑
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {showClearConfirm && (
@@ -16130,18 +16476,7 @@ ${prompt}
         )}
       </AnimatePresence>
 
-      {/* Clear All Button */}
-      {history.filter((h) => !h.hiddenFromCanvas).length > 0 && (
-        <div className="absolute bottom-6 right-6 z-10">
-          <button
-            onClick={handleClearAll}
-            className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-md border border-red-100 text-red-600 rounded-full shadow-lg hover:bg-red-50 transition-all text-sm font-medium"
-          >
-            <Trash2 className="w-4 h-4" />
-            清空画布
-          </button>
-        </div>
-      )}
+
 
       {/* Batch Delete Confirmation Modal */}
       <AnimatePresence>
@@ -16495,8 +16830,10 @@ ${prompt}
             {/* 上传 */}
             <button
               onClick={() => {
+                const centerPos = getViewportCenterPosition();
+                uploadTargetPositionRef.current = centerPos;
                 setContextMenu(null);
-                fileInputRef.current?.click();
+                canvasUploadInputRef.current?.click();
               }}
               className="w-full text-left px-3 py-2 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-xl transition-all flex items-center space-x-2.5 cursor-pointer group"
             >
@@ -16506,6 +16843,81 @@ ${prompt}
           </motion.div>
         </React.Fragment>
       )}
+
+      {cardContextMenu && cardContextMenu.visible && (
+        <React.Fragment>
+          {/* Transparent click shield */}
+          <div
+            className="fixed inset-0 z-[9998] bg-transparent"
+            onClick={() => setCardContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCardContextMenu(null);
+            }}
+          />
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+            style={{
+              top: Math.min(cardContextMenu.y, window.innerHeight - 180),
+              left: Math.min(cardContextMenu.x, window.innerWidth - 180),
+            }}
+            className="fixed z-[9999] w-[160px] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.5)] border border-zinc-200/80 dark:border-zinc-800/80 p-1.5 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 复制 */}
+            <button
+              onClick={() => {
+                handleDuplicateCard(cardContextMenu.item);
+              }}
+              className="w-full text-left px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800/80 rounded-xl transition-all flex items-center space-x-2.5 cursor-pointer group"
+            >
+              <Copy className="w-4 h-4 text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-200" />
+              <span>复制</span>
+            </button>
+
+            {/* 做同款 */}
+            {cardContextMenu.item.type !== "gen_script" && (
+              <button
+                onClick={() => {
+                  handleRemix(cardContextMenu.item);
+                  setCardContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800/80 rounded-xl transition-all flex items-center space-x-2.5 cursor-pointer group"
+              >
+                <Sparkles className="w-4 h-4 text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-200" />
+                <span>做同款</span>
+              </button>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-zinc-100 dark:border-zinc-800/60 my-1 mx-1.5" />
+
+            {/* 删除 */}
+            <button
+              onClick={() => {
+                handleRemove(cardContextMenu.item.id);
+                setCardContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-all flex items-center space-x-2.5 cursor-pointer group"
+            >
+              <Trash2 className="w-4 h-4 text-red-500/80 group-hover:text-red-600 dark:group-hover:text-red-400" />
+              <span>删除</span>
+            </button>
+          </motion.div>
+        </React.Fragment>
+      )}
+      <input
+        type="file"
+        ref={canvasUploadInputRef}
+        className="hidden"
+        accept="image/*,video/*,audio/*,.txt,.docx,.pdf,.xlsx,.xls"
+        multiple
+        onChange={handleCanvasUpload}
+      />
     </div>
   );
 };

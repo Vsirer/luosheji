@@ -1,6 +1,6 @@
 {
-  "name": "小逻-多模态AI意图操作系统",
+  "name": "AI意图控制台",
   "description": "释放你的逻辑设计力",
-  "requestFramePermissions": ["clipboard-read", "clipboard-write"],
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

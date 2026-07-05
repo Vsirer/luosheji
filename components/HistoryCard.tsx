@@ -98,6 +98,7 @@ interface HistoryCardProps {
   syncToCloud?: (item: HistoryItem) => Promise<any>;
   history?: HistoryItem[];
   customModels?: any[];
+  onCardContextMenu?: (e: React.MouseEvent, item: HistoryItem) => void;
 }
 
 export const HistoryCard = React.memo(
@@ -142,12 +143,18 @@ export const HistoryCard = React.memo(
     syncToCloud,
     history = [],
     customModels = [],
+    onCardContextMenu,
   }: HistoryCardProps) => {
     const [naturalAspectRatio, setNaturalAspectRatio] = useState<number | null>(item.naturalAspectRatio || null);
     const [isDraggingThisCard, setIsDraggingThisCard] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
     const [localPos, setLocalPos] = useState({ x: item.position?.x || 0, y: item.position?.y || 0 });
     const [localText, setLocalText] = useState(item.revisedPrompt || "");
+
+    const isInlineConsoleActive = isSelected && (
+      (item.status === "draft_new" && (item.type === "image" || item.type === "video")) ||
+      (item.type === "gen_script" && (!item.revisedPrompt || item.revisedPrompt.trim() === ""))
+    );
 
     useEffect(() => {
       setLocalText(item.revisedPrompt || "");
@@ -595,7 +602,7 @@ export const HistoryCard = React.memo(
           }}
           whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 100 }}
           className={cn(
-            "absolute w-[360px] h-[340px] group bg-zinc-950/95 backdrop-blur-md rounded-[32px] p-5 shadow-2xl border-2 will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none flex flex-col justify-between",
+            "absolute w-[360px] h-[340px] group bg-zinc-950/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border-2 will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none flex flex-col justify-between",
             isRunning 
               ? "border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)] animate-pulse" 
               : isFailed
@@ -804,6 +811,22 @@ export const HistoryCard = React.memo(
     }
 
     if (item.status === "draft_new") {
+      const OrigamiCrane = () => (
+        <svg viewBox="0 0 100 100" className="w-20 h-20 drop-shadow-[0_4px_10px_rgba(0,0,0,0.02)] opacity-85 transition-transform duration-300 group-hover:scale-105">
+          {/* Left neck/head */}
+          <polygon points="50,60 25,45 35,55" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="0.25" />
+          <polygon points="25,45 20,50 28,48" fill="#94a3b8" stroke="#64748b" strokeWidth="0.25" />
+          {/* Right tail */}
+          <polygon points="50,60 75,45 65,55" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="0.25" />
+          {/* Back wing */}
+          <polygon points="50,60 45,25 52,48" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="0.25" />
+          {/* Front main wing/body */}
+          <polygon points="50,60 38,50 50,20" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="0.25" />
+          <polygon points="50,60 52,50 50,20" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="0.25" />
+          <polygon points="50,60 55,50 68,48" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="0.25" />
+        </svg>
+      );
+
       return (
         <motion.div
           onPointerDown={handlePointerDown}
@@ -818,24 +841,29 @@ export const HistoryCard = React.memo(
           }}
           whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 50 }}
           className={cn(
-            "absolute w-[360px] h-[340px] group bg-zinc-950/95 border-2 border-dashed rounded-[32px] shadow-2xl history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none",
+            "absolute group bg-[#f3f4f6] border border-zinc-200 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.04)] history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden",
             layoutMode === "semi_auto"
               ? getSemiAutoBorderStyles(item)
-              : item.type === "video" 
-                ? "hover:border-purple-500/50 hover:shadow-purple-500/5 border-zinc-800/80" 
-                : "hover:border-indigo-500/50 hover:shadow-indigo-500/5 border-zinc-800/80",
+              : "hover:border-zinc-300 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]",
             isMultiSelected || isSelected || dockedItemId === item.id
               ? layoutMode === "semi_auto"
                 ? getSemiAutoActiveStyles(item)
-                : item.type === "video"
-                  ? "border-purple-500 ring-4 ring-purple-500/10 shadow-[0_0_20px_rgba(168,85,247,0.15)]"
-                  : "border-indigo-500 ring-4 ring-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)]"
+                : "border-indigo-400 ring-4 ring-indigo-500/10 shadow-[0_8px_30px_rgba(99,102,241,0.12)]"
               : ""
           )}
-          style={{ cursor: isDragDisabled ? "default" : "grab" }}
+          style={{ 
+            cursor: isDragDisabled ? "default" : "grab",
+            width: `${spec.width}px`,
+            height: `${spec.height}px`
+          }}
           onClick={(e) => {
             e.stopPropagation();
             if (onSelect) onSelect(item.id);
+          }}
+          onContextMenu={(e) => {
+            if (onCardContextMenu) {
+              onCardContextMenu(e, item);
+            }
           }}
           transition={isDraggingThisCard ? { type: "tween", duration: 0 } : {
             type: "spring",
@@ -848,9 +876,10 @@ export const HistoryCard = React.memo(
           {layoutMode !== "bento" && layoutMode !== "semi_auto" && (
             <div
               className={cn(
-                "absolute left-0 top-[170px] -translate-x-[15px] -translate-y-1/2 z-[50] flex items-center justify-center pointer-events-none transition-all duration-300",
+                "absolute left-0 -translate-x-[15px] -translate-y-1/2 z-[50] flex items-center justify-center pointer-events-none transition-all duration-300",
                 dockedItemId === item.id ? "scale-140" : "scale-100"
               )}
+              style={{ top: `${spec.height / 2}px` }}
             >
               <div className={cn(
                 "relative flex items-center justify-center w-8 h-8 rounded-full border-2 bg-zinc-950 transition-all duration-300",
@@ -887,9 +916,10 @@ export const HistoryCard = React.memo(
           {layoutMode !== "bento" && layoutMode !== "semi_auto" && (isSelected || isMultiSelected || dockedItemId === item.id || hasChildren) && (
             <div
               className={cn(
-                "absolute right-0 top-[170px] translate-x-[15px] -translate-y-1/2 z-[50] flex items-center justify-center pointer-events-none transition-all duration-300",
+                "absolute right-0 translate-x-[15px] -translate-y-1/2 z-[50] flex items-center justify-center pointer-events-none transition-all duration-300",
                 dockedItemId === item.id ? "scale-140" : "scale-100"
               )}
+              style={{ top: `${spec.height / 2}px` }}
             >
               <div className={cn(
                 "relative flex items-center justify-center w-8 h-8 rounded-full border-2 bg-zinc-950 transition-all duration-300",
@@ -923,54 +953,38 @@ export const HistoryCard = React.memo(
             </div>
           )}
           <div className="p-6 h-full flex flex-col justify-between select-none">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className={cn(
-                  "w-1.5 h-1.5 rounded-full animate-pulse",
-                  item.type === "video" ? "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" : "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]"
-                )} />
-                <span className="text-[12px] font-black tracking-wider text-zinc-400 uppercase">
-                  {item.type === "video" ? "待生成视频区域" : "待生成图片区域"}
-                </span>
-              </div>
+            {/* Header section matching Figure 1 */}
+            <div className="flex items-center justify-between shrink-0">
+              {item.type === "gen_script" ? (
+                <div className="flex items-center space-x-1 text-zinc-400 font-bold text-xs">
+                  <span className="font-extrabold text-zinc-500 mr-0.5 text-sm tracking-wider">A三</span>
+                  <span className="text-zinc-500 font-semibold tracking-wide">Text</span>
+                </div>
+              ) : item.type === "video" ? (
+                <div className="flex items-center space-x-1.5 text-zinc-400 font-semibold text-xs">
+                  <Film className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="text-zinc-500 font-semibold tracking-wide">Video Gen</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1.5 text-zinc-400 font-semibold text-xs">
+                  <ImageIcon className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="text-zinc-500 font-semibold tracking-wide">Image Gen</span>
+                </div>
+              )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemove(item.id);
                 }}
-                className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-zinc-200 rounded-full transition-all"
+                className="p-1.5 hover:bg-zinc-200/60 text-zinc-400 hover:text-zinc-600 rounded-full transition-all cursor-pointer active:scale-95"
                 title="删除区域"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="flex flex-col items-center justify-center py-4 text-center space-y-3 flex-1">
-              <div className={cn(
-                "relative flex items-center justify-center w-14 h-14 rounded-full border border-dashed transition-all duration-350",
-                item.type === "video" 
-                  ? "border-purple-500/30 bg-purple-500/5 text-purple-400 group-hover:scale-105" 
-                  : "border-indigo-500/30 bg-indigo-500/5 text-indigo-400 group-hover:scale-105"
-              )}>
-                <div className={cn(
-                  "absolute inset-0 rounded-full animate-ping opacity-5",
-                  item.type === "video" ? "bg-purple-500" : "bg-indigo-500"
-                )} />
-                {item.type === "video" ? (
-                  <Film className="w-5 h-5 animate-pulse" />
-                ) : (
-                  <ImageIcon className="w-5 h-5 animate-pulse" />
-                )}
-              </div>
-
-              <div className="space-y-1 px-4">
-                <p className="text-[13px] font-bold text-zinc-200">
-                  {item.type === "video" ? "视频生成占位" : "图片生成占位"}
-                </p>
-                <p className="text-[11px] text-zinc-500 leading-normal max-w-[240px]">
-                  请在下方主输入框中输入描述词并发送，新内容将在此处加载。
-                </p>
-              </div>
+            {/* Central minimalist section (origami crane removed per user request) */}
+            <div className="flex-1 flex flex-col items-center justify-center py-4 text-center">
             </div>
           </div>
         </motion.div>
@@ -992,7 +1006,7 @@ export const HistoryCard = React.memo(
           }}
           whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 100 }}
           className={cn(
-            "absolute w-[360px] h-[270px] group bg-white rounded-[32px] p-6 shadow-2xl border-2 will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none",
+            "absolute w-[360px] h-[270px] group bg-white rounded-2xl p-6 shadow-2xl border-2 will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none",
             layoutMode === "semi_auto"
               ? getSemiAutoBorderStyles(item)
               : "hover:shadow-indigo-500/10 border-gray-100/80",
@@ -1090,7 +1104,7 @@ export const HistoryCard = React.memo(
             </span>
           </div>
 
-          <div className="relative w-full bg-zinc-950 border border-zinc-800/80 rounded-[24px] p-5 shadow-inner flex flex-col space-y-4">
+          <div className="relative w-full bg-zinc-950 border border-zinc-800/80 rounded-2xl p-5 shadow-inner flex flex-col space-y-4">
             {onDownload && (
               <button
                 onClick={(e) => {
@@ -1164,7 +1178,7 @@ export const HistoryCard = React.memo(
         }}
         whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 50 }}
         className={cn(
-          "absolute group rounded-[32px] shadow-2xl border flex flex-col will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none",
+          "absolute group rounded-2xl shadow-2xl border flex flex-col will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none",
           item.type === "gen_script" ? "bg-white" : "bg-zinc-950",
           layoutMode === "semi_auto"
             ? getSemiAutoBorderStyles(item)
@@ -1185,6 +1199,11 @@ export const HistoryCard = React.memo(
         onClick={(e) => {
           e.stopPropagation();
           if (onSelect) onSelect(item.id);
+        }}
+        onContextMenu={(e) => {
+          if (onCardContextMenu) {
+            onCardContextMenu(e, item);
+          }
         }}
         onMouseEnter={() => {
           if (item.type === "video" && videoRef.current) {
@@ -1387,7 +1406,7 @@ export const HistoryCard = React.memo(
 
         {(item.status === "loading" || item.status === "processing") &&
         !(item.imageUrl || item.videoUrl || item.type === "gen_script") ? (
-          <div className="w-full h-full flex-1 flex flex-col items-center justify-center bg-zinc-900/60 backdrop-blur-sm space-y-4 relative overflow-hidden rounded-[30px]">
+          <div className="w-full h-full flex-1 flex flex-col items-center justify-center bg-zinc-900/60 backdrop-blur-sm space-y-4 relative overflow-hidden rounded-2xl">
             <button
               onClick={() => onRemove(item.id)}
               className="absolute top-4 right-4 p-2 bg-white/50 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-full transition-all z-10"
@@ -1440,7 +1459,7 @@ export const HistoryCard = React.memo(
             </div>
           </div>
         ) : item.type === "gen_script" ? (
-            <div className="relative aspect-[3/4] sm:aspect-square overflow-hidden bg-white cursor-pointer group/script rounded-[30px]">
+            <div className="relative aspect-[3/4] sm:aspect-square overflow-hidden bg-white cursor-pointer group/script rounded-2xl">
               <div className="w-full h-full p-6 flex flex-col bg-amber-50/20">
                 <div className="flex items-center space-x-2 text-amber-600 mb-3 shrink-0">
                   {(() => {
@@ -1513,7 +1532,7 @@ export const HistoryCard = React.memo(
           ) : (
           <div
             className={cn(
-              "relative w-full h-[100%] flex-1 overflow-hidden cursor-pointer rounded-[30px]",
+              "relative w-full h-[100%] flex-1 overflow-hidden cursor-pointer rounded-2xl",
               item.status === "error" ? "bg-zinc-900" : "bg-black",
             )}
           >
@@ -1648,7 +1667,7 @@ export const HistoryCard = React.memo(
         )}
 
         {item.type === "gen_script" && !isDissectedScriptResult && !item.config?.isSkillNode && !item.config?.isIntegratedModelNode && (
-          <div className="p-6 space-y-4 bg-white rounded-b-[40px]">
+          <div className="p-6 space-y-4 bg-white rounded-b-2xl">
             <div className="min-h-[56px]">
               <p className="text-[10px] text-amber-500 font-black uppercase tracking-[0.2em] mb-2">
                 剧本预览
@@ -1661,11 +1680,12 @@ export const HistoryCard = React.memo(
         )}
 
         {!item.config?.isSkillNode && !item.config?.isIntegratedModelNode &&
+          !isInlineConsoleActive &&
           (item.status === "success" ||
             item.imageUrl ||
             item.videoUrl ||
             item.status === "error" ||
-            item.type === "gen_script") && (
+            (item.type === "gen_script" && item.revisedPrompt && item.revisedPrompt.trim() !== "")) && (
           <AnimatePresence>
             {isSelected && (
               <div
@@ -1951,33 +1971,6 @@ export const HistoryCard = React.memo(
                     </>
                   ) : (
                     <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemix(item);
-                        }}
-                        className="h-8 px-3 hover:bg-amber-400/10 text-amber-400 hover:text-amber-300 rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold"
-                        title="做同款"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>做同款</span>
-                      </button>
-
-                      {item.videoUrl && (
-                        <button
-                          disabled={isDissecting}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (onDissect) onDissect(item);
-                          }}
-                          className="h-8 px-2.5 hover:bg-amber-500/10 text-amber-500 hover:text-amber-400 rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold relative disabled:opacity-50"
-                          title="影音拉片"
-                        >
-                          <Film className={cn("w-3.5 h-3.5 text-orange-400", isDissecting && "animate-spin")} />
-                          <span>{isDissecting ? "读取中..." : "影音拉片"}</span>
-                        </button>
-                      )}
-
                       {(item.status === "success" ||
                         item.imageUrl ||
                         item.videoUrl) && (
@@ -2129,72 +2122,7 @@ export const HistoryCard = React.memo(
                             </>
                           )}
 
-                          <div className="relative">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowReferenceDropdown(
-                                  !showReferenceDropdown,
-                                );
-                              }}
-                              className={cn(
-                                "h-8 px-2.5 hover:bg-emerald-500/10 text-emerald-300 hover:text-emerald-200 rounded-full flex items-center space-x-1 transition-all active:scale-95 text-xs font-semibold",
-                                showReferenceDropdown &&
-                                  "bg-emerald-500/15 text-emerald-200",
-                              )}
-                              title="引用参考"
-                            >
-                              <Quote className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>引用参考</span>
-                              <ChevronDown
-                                className={cn(
-                                  "w-3 h-3 text-zinc-400 transition-transform duration-200",
-                                  showReferenceDropdown && "rotate-180",
-                                )}
-                              />
-                            </button>
 
-                            <AnimatePresence>
-                              {showReferenceDropdown && (
-                                <motion.div
-                                  initial={{ opacity: 0, scale: 0.95, y: 8 }}
-                                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                                  exit={{ opacity: 0, scale: 0.95, y: 8 }}
-                                  transition={{ duration: 0.15 }}
-                                  className="absolute bottom-full mb-2 left-0 z-[120] w-36 bg-zinc-950/95 border border-zinc-800/80 shadow-2xl backdrop-blur-md rounded-xl p-1 flex flex-col gap-0.5 whitespace-nowrap action-bar-click-target"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {!item.videoUrl && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onReference(item);
-                                        setShowReferenceDropdown(false);
-                                      }}
-                                      className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                      title="引用该图片"
-                                    >
-                                      <Quote className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                      <span>图片参考</span>
-                                    </button>
-                                  )}
-
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onMakeVideo?.(item);
-                                      setShowReferenceDropdown(false);
-                                    }}
-                                    className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                    title="作为视频参考素材"
-                                  >
-                                    <Clapperboard className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                                    <span>视频参考</span>
-                                  </button>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
 
                           <button
                             onClick={(e) => {

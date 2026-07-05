@@ -349,7 +349,7 @@ export class BaseAgent {
     const rawSize = body?.config?.imageConfig?.imageSize || body?.imageConfig?.imageSize || body?.generationConfig?.imageConfig?.imageSize || 
                    body?.config?.image_config?.image_size || body?.generationConfig?.image_config?.image_size;
     const is4K = rawSize === '4K' || rawSize === 'ultra' || (typeof rawSize === 'string' && rawSize.includes('4096'));
-    const isVideo = resolvedType === 'video' || resolvedType === 'videoSeedance' || resolvedType === 'videoSeedanceMini' || resolvedType === 'videoOmni' || resolvedType === 'videoVeoFast';
+    const isVideo = resolvedType === 'video' || resolvedType === 'videoSeedance' || resolvedType === 'videoSeedanceMini' || resolvedType === 'videoVeoFast';
     let timeoutMs = isVideo ? 1800000 : (resolvedType === 'image' || resolvedType === 'script' || resolvedType === 'gptImage' ? 1800000 : 300000); 
 
     const safetySettings = [
@@ -477,10 +477,18 @@ export class BaseAgent {
     const isGoogleEndpoint = endpoint.includes(':generateContent') || endpoint.includes(':predict') || endpoint.includes(':generateImages') || endpoint.includes('googleapis.com') || apiConfig.provider === 'Google';
     const isOpenAiEndpoint = endpoint.includes('/chat/completions') || endpoint.includes('/v1/images/generations') || endpoint.includes('/v1/chat/completions');
     
-    let effectiveProtocol: 'google' | 'openai' = (forceOpenAI || isExplicitGpt) ? 'openai' : (isGoogleEndpoint ? 'google' : 'google');
-    if (isGoogleEndpoint) effectiveProtocol = 'google';
-    else if (isOpenAiEndpoint) effectiveProtocol = 'openai';
-    else if (endpoint.includes('openai.com') || endpoint.includes('vectorengine.ai') || endpoint.includes('volces.com') || apiConfig.provider === 'OpenAI' || apiConfig.provider === 'Third Party' || apiConfig.provider === 'Seedance') effectiveProtocol = 'openai';
+    let effectiveProtocol: 'google' | 'openai' | 'claude' = 'google';
+    if (apiConfig.protocolType === 'claude' || apiConfig.protocolType === 'anthropic' || endpoint.includes('/v1/messages') || endpoint.includes('/messages')) {
+      effectiveProtocol = 'claude';
+    } else if (isGoogleEndpoint) {
+      effectiveProtocol = 'google';
+    } else if (isOpenAiEndpoint) {
+      effectiveProtocol = 'openai';
+    } else if (forceOpenAI || isExplicitGpt) {
+      effectiveProtocol = 'openai';
+    } else if (endpoint.includes('openai.com') || endpoint.includes('vectorengine.ai') || endpoint.includes('volces.com') || apiConfig.provider === 'OpenAI' || apiConfig.provider === 'Third Party' || apiConfig.provider === 'Seedance') {
+      effectiveProtocol = 'openai';
+    }
 
     const isImageGeneration = (type === 'image' || type === 'gptImage' || method === 'generateImages');
     
@@ -679,50 +687,11 @@ export class BaseAgent {
       }
 
       if (isVideo) {
-        const isOmni = targetModel.includes('omni') || type === 'videoOmni';
-        
-        if (isOmni) {
-          // Optimized for Omni-Flash VideoCreateRequestSchema
-          const modeTag = body.config?.videoMode || body.videoMode || '';
-          
-          if (modeTag.startsWith('type-')) {
-            finalPayload.type = parseInt(modeTag.split('-')[1]);
-          }
-
-          const basePrompt = restBody.prompt || (restBody.contents ? restBody.contents[0]?.parts.find((p: any) => p.text)?.text : '');
-          finalPayload.prompt = (modeTag && !modeTag.startsWith('type-')) ? `${modeTag}. ${basePrompt}` : basePrompt;
-          finalPayload.seconds = String(body.config?.duration || body.duration || '8');
-          finalPayload.aspect_ratio = body.config?.aspectRatio || body.aspectRatio || '16:9';
-          
-          // Map resolution to enable_sample
-          const quality = body.config?.quality || body.quality || body.config?.resolution || body.resolution || '720p';
-          if (quality === '1080p' || quality === 'native1080p') {
-            finalPayload.enable_sample = true;
-            finalPayload.enable_upsample = true;
-          }
-
-          // Handle Omni-Flash types: 1=Text, 2=Start-End, 3=Image Ref
-          const images = body.images || body.config?.images || (body.image ? [body.image] : []);
-          if (images && images.length > 0) {
-            finalPayload.images = images;
-            // If user didn't explicitly select a type, auto-detect
-            if (!finalPayload.type) {
-              finalPayload.type = images.length >= 2 ? 2 : 3;
-            }
-          } else if (!finalPayload.type) {
-            finalPayload.type = 1;
-          }
-          
-          // Clean up OpenAI specific alias
-          delete finalPayload.size;
-          delete finalPayload.duration;
-        } else {
-          // Standard OpenAI style for other models
-          finalPayload.seconds = body.config?.duration || body.duration || '8';
-          finalPayload.duration = finalPayload.seconds;
-          finalPayload.size = body.config?.aspectRatio || body.aspectRatio || '16:9';
-          finalPayload.aspect_ratio = finalPayload.size;
-        }
+        // Standard OpenAI style for other models
+        finalPayload.seconds = body.config?.duration || body.duration || '8';
+        finalPayload.duration = finalPayload.seconds;
+        finalPayload.size = body.config?.aspectRatio || body.aspectRatio || '16:9';
+        finalPayload.aspect_ratio = finalPayload.size;
       }
 
       // 自动补齐比例参数，增强兼容性
@@ -738,6 +707,55 @@ export class BaseAgent {
       // Handle specialized image parts
       if (restBody.image) {
         finalPayload.image = restBody.image;
+      }
+    } else if (effectiveProtocol === 'claude') {
+      const messages = [];
+      let sysText = '';
+      const sysInst = body.config?.systemInstruction || body.systemInstruction;
+      if (sysInst) {
+        if (typeof sysInst === 'string') sysText = sysInst;
+        else if (sysInst.parts && Array.isArray(sysInst.parts)) {
+          sysText = sysInst.parts.map((p: any) => p.text || '').join('');
+        }
+      }
+
+      if (restBody.contents) {
+        for (const content of restBody.contents) {
+          const role = content.role === 'model' ? 'assistant' : 'user';
+          const contentParts = content.parts.map((p: any) => {
+            if (p.text) return { type: 'text', text: p.text };
+            const inlineData = p.inlineData || p.inline_data;
+            if (inlineData) {
+              const data = inlineData.data;
+              const mimeType = inlineData.mimeType || inlineData.mime_type || 'image/png';
+              return { 
+                type: 'image', 
+                source: {
+                  type: 'base64',
+                  media_type: mimeType,
+                  data: data
+                }
+              };
+            }
+            return null;
+          }).filter(Boolean);
+          messages.push({ 
+            role, 
+            content: contentParts.length === 1 && contentParts[0].type === 'text' ? contentParts[0].text : contentParts 
+          });
+        }
+      } else if (restBody.prompt) {
+        messages.push({ role: 'user', content: restBody.prompt });
+      }
+
+      finalPayload = { 
+        model: targetModel, 
+        messages: messages, 
+        max_tokens: restBody.config?.maxOutputTokens || 4000,
+        temperature: restBody.config?.temperature || 0.7
+      };
+      if (sysText) {
+        finalPayload.system = sysText;
       }
     } else if (effectiveProtocol === 'openai') {
       const messages = [];
@@ -887,12 +905,10 @@ export class BaseAgent {
         url = (baseUrlRaw.endsWith('/v1') || effectiveProtocol === 'openai' || baseUrlRaw.includes('openai.com')) ? `${baseUrlRaw}/images/generations` : `${baseUrl}/v1/images/generations`;
       }
     } else if (isOpenAiTaskStyle && isVideo) {
-      // For video generation with OpenAI protocol, handle Omni-Flash specifically
-      if (type === 'videoOmni' || targetModel.includes('omni')) {
-        url = `${baseUrl}/v1/video/create`;
-      } else {
-        url = (baseUrlRaw.endsWith('/v1') || effectiveProtocol === 'openai' || baseUrlRaw.includes('openai.com')) ? `${baseUrlRaw}/chat/completions` : `${baseUrl}/v1/chat/completions`;
-      }
+      url = (baseUrlRaw.endsWith('/v1') || effectiveProtocol === 'openai' || baseUrlRaw.includes('openai.com')) ? `${baseUrlRaw}/chat/completions` : `${baseUrl}/v1/chat/completions`;
+    } else if (effectiveProtocol === 'claude') {
+      const cleanBase = baseUrlRaw;
+      url = (cleanBase.endsWith('/v1/messages') || cleanBase.endsWith('/messages')) ? cleanBase : `${cleanBase.replace(/\/+$/, '')}/v1/messages`;
     } else if (effectiveProtocol === 'openai') {
       const cleanBase = baseUrlRaw;
       url = (baseUrlRaw.endsWith('/v1') || effectiveProtocol === 'openai' || cleanBase.includes('openai.com')) ? `${cleanBase}/chat/completions` : `${cleanBase.replace(/\/+$/, '')}/v1/chat/completions`;
@@ -902,7 +918,7 @@ export class BaseAgent {
       url = `${baseUrlRaw.replace(/\/+$/, '')}/v1beta/models/${cleanPath}`;
     }
 
-    if (!url.includes('key=') && effectiveProtocol !== 'openai' && apiConfig.provider !== 'Third Party' && apiConfig.provider !== 'Seedance') {
+    if (!url.includes('key=') && effectiveProtocol !== 'openai' && effectiveProtocol !== 'claude' && apiConfig.provider !== 'Third Party' && apiConfig.provider !== 'Seedance') {
       url += `${url.includes('?') ? '&' : '?'}key=${apiKey}`;
     }
 
@@ -925,8 +941,16 @@ export class BaseAgent {
         
         if (apiKey) {
           const isGoogleDomain = url.includes('googleapis.com');
-          if (isGoogleDomain) headers['x-goog-api-key'] = apiKey;
-          else headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+          const isClaude = url.includes('/v1/messages') || url.includes('/messages') || apiConfig.protocolType === 'claude' || apiConfig.protocolType === 'anthropic';
+          if (isGoogleDomain) {
+            headers['x-goog-api-key'] = apiKey;
+          } else if (isClaude) {
+            headers['x-api-key'] = apiKey;
+            headers['anthropic-version'] = '2023-06-01';
+            headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+          } else {
+            headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+          }
         }
         
         let finalUrl = url;
@@ -946,6 +970,13 @@ export class BaseAgent {
         
         const responseText = await response.text();
         clearTimeout(timeoutId);
+
+        const contentType = response.headers.get('content-type') || '';
+        if (responseText.trim().startsWith('<!DOCTYPE') || contentType.includes('text/html')) {
+          const isClaude = targetModel.toLowerCase().includes('claude') || type.toLowerCase().includes('claude');
+          const modelDisplayName = isClaude ? 'Claude-sonnet-5' : targetModel;
+          throw new Error(`API Key 无效或接口端点配置有误 (接口返回了 HTML 页面而非 JSON，选定模型: ${modelDisplayName})`);
+        }
 
         if (responseText.includes('Starting Server')) {
           if (i < maxRetries - 1) { 
@@ -1026,6 +1057,24 @@ export class BaseAgent {
         // Post-processing responses for UI compatibility
         if (method === 'generateContent' && !result.text && result.candidates?.[0]?.content?.parts?.[0]?.text) {
           result.text = result.candidates[0].content.parts.map((p: any) => p.text || '').join('');
+        }
+
+        // Support OpenAI/Third Party format response text extraction
+        if (result.choices?.[0]?.message?.content !== undefined && !result.text) {
+          result.text = result.choices[0].message.content;
+        } else if (result.choices?.[0]?.text !== undefined && !result.text) {
+          result.text = result.choices[0].text;
+        }
+
+        // Support Claude Native format response text extraction
+        if (result.content && Array.isArray(result.content)) {
+          const textParts = result.content
+            .filter((c: any) => c.type === 'text')
+            .map((c: any) => c.text || '')
+            .join('');
+          if (textParts && !result.text) {
+            result.text = textParts;
+          }
         }
         
         // Comprehensive image mapping

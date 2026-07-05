@@ -273,11 +273,13 @@ export const getActualCanvasCardSizeAndPort = (item: HistoryItem) => {
     };
   }
   if (item.status === "draft_new") {
+    const w = 320;
+    const h = item.type === "gen_script" ? 320 : 500;
     return {
-      width: 360,
-      height: 340,
-      portX: -15,
-      portY: 170,
+      width: w,
+      height: h,
+      portX: w + 15,
+      portY: h / 2,
     };
   }
   if ((item as any).status === "pipeline_pending" || (item as any).status === "pending" || (item as any).status === "running" || (item.config as any)?.isPipelineNode) {

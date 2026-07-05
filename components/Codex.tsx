@@ -82,8 +82,9 @@ import {
 } from '../constants';
 
 // Set up PDF.js worker
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+const safePdfjsLib = (pdfjsLib as any).GlobalWorkerOptions ? (pdfjsLib as any) : ((pdfjsLib as any).default || pdfjsLib);
+if (typeof window !== 'undefined' && safePdfjsLib && safePdfjsLib.GlobalWorkerOptions) {
+  safePdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${safePdfjsLib.version || '3.11.174'}/pdf.worker.min.js`;
 }
 import { 
   fetchWithProxy, 
@@ -142,6 +143,7 @@ interface CodexProps {
   onRegisterRemoveFileRef?: (removeFn: ((index: number) => void) | null) => void;
   onRegisterAppendMessageRef?: (appendFn: ((msg: Message) => void) | null) => void;
   onRegisterInsertDividerRef?: (insertFn: (() => void) | null) => void;
+  onRegisterClearHistoryRef?: (clearFn: (() => void) | null) => void;
   externalChatTargetId?: string;
   onExternalChatTargetChange?: (val: string) => void;
   onGroupsFetched?: (groups: GroupChat[]) => void;
@@ -221,7 +223,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
           <div className="flex-1 border-t border-dashed border-red-300 dark:border-red-800/60"></div>
         </div>
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5 tracking-tight font-medium">
-          此线以上的历史对话已对大模型和意图解析隔离
+          此线以上的历史对话已对大模型和意图引导隔离
         </p>
       </motion.div>
     );
@@ -293,7 +295,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
               )}
 
               {msg.type === 'pipeline' && msg.pipelinePlan && (
-                <div className="mt-3 flex flex-col space-y-4 border border-indigo-100 rounded-xl bg-indigo-50/10 p-3 md:p-4 min-w-[280px] sm:min-w-[380px] md:min-w-[480px] max-w-full">
+                <div className="mt-3 flex flex-col space-y-4 border border-indigo-100 rounded-xl bg-indigo-50/10 p-3 md:p-4 w-full max-w-[390px] sm:max-w-[450px] min-w-[240px]">
                   {/* Title & Explanation */}
                   <div className="flex items-start space-x-2.5">
                     <span className="text-xl">⚙️</span>
@@ -480,8 +482,8 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                           isSkipped ? 'bg-gray-50/40 border-gray-100' :
                           'bg-gray-50/50 border-gray-100'
                         }`}>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2.5">
+                          <div className="flex items-center justify-between min-w-0 w-full">
+                            <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
                               {/* Checkbox for selection (only if not started) */}
                               {!hasStarted && (
                                 <input 
@@ -507,12 +509,12 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                       return m;
                                     }));
                                   }}
-                                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer mr-0.5"
+                                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer mr-0.5 shrink-0"
                                 />
                               )}
 
                               {/* Icon of Step */}
-                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[13px] ${
+                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[13px] shrink-0 ${
                                 !isEnabled ? 'bg-gray-200 text-gray-400' :
                                 isRunning ? 'bg-indigo-500 text-white animate-pulse' :
                                 isCompleted ? 'bg-emerald-500 text-white' :
@@ -522,8 +524,8 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                               }`}>
                                 {step.type === 'script' ? '✍️' : step.type === 'image' ? '🎨' : '🎬'}
                               </div>
-                              <div className="flex flex-col">
-                                <span className={`text-[13px] font-bold ${
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <span className={`text-[13px] font-bold whitespace-normal break-words ${
                                   !isEnabled ? 'text-gray-400 line-through' :
                                   isRunning ? 'text-indigo-900' :
                                   isCompleted ? 'text-emerald-900' :
@@ -532,7 +534,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                   'text-gray-700'
                                 }`}>{step.label}</span>
                                 {step.prompt && isEnabled && !isRunning && !isCompleted && (
-                                  <span className="text-[10.5px] text-gray-400 max-w-[280px] truncate leading-tight mt-0.5" title={step.prompt}>
+                                  <span className="text-[10.5px] text-gray-400 max-w-full whitespace-normal break-words leading-tight mt-0.5 block" title={step.prompt}>
                                     {step.prompt}
                                   </span>
                                 )}
@@ -540,7 +542,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                             </div>
                             
                             {/* Action Buttons & Status Pill */}
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 shrink-0">
                               {!hasStarted && isEnabled && (
                                 <div className="flex items-center space-x-0.5 mr-1.5 opacity-65 hover:opacity-100 transition-opacity">
                                   <button
@@ -773,7 +775,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                           共 {msg.pipelinePlan.steps.filter((s: any) => s.enabled !== false).length} / {msg.pipelinePlan.steps.length} 个执行步骤
                         </span>
                         
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-1.5">
                           {!msg.pipelinePlan.generatedOnCanvas ? (
                             <>
                               <button
@@ -792,7 +794,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                     return m;
                                   }));
                                 }}
-                                className="px-3 py-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-55/40 rounded-lg text-[12px] font-bold transition-all cursor-pointer flex items-center space-x-1"
+                                className="px-2.5 py-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-55/40 rounded-lg text-[11.5px] font-bold transition-all cursor-pointer flex items-center space-x-1 shrink-0"
                               >
                                 <span>✏️ 我要微调</span>
                               </button>
@@ -858,7 +860,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                     return m;
                                   }));
                                 }}
-                                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-[#4338ca] text-white font-bold text-[12px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-[#4338ca] text-white font-bold text-[11.5px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer shrink-0"
                               >
                                 <span>✅ 确认并部署沙盘</span>
                               </button>
@@ -1143,7 +1145,7 @@ const FileContent = ({ url }: { url: string }) => {
           const result = await mammoth.extractRawText({ arrayBuffer: buffer });
           setContent(result.value);
         } else if (lowerUrl.endsWith('.pdf')) {
-          const loadingTask = pdfjsLib.getDocument({ data: buffer });
+          const loadingTask = safePdfjsLib.getDocument({ data: buffer });
           const pdf = await loadingTask.promise;
           let fullText = '';
           for (let i = 1; i <= pdf.numPages; i++) {
@@ -1186,6 +1188,7 @@ export const Codex: React.FC<CodexProps> = ({
   onRegisterRemoveFileRef,
   onRegisterAppendMessageRef,
   onRegisterInsertDividerRef,
+  onRegisterClearHistoryRef,
   externalChatTargetId,
   onExternalChatTargetChange,
   onGroupsFetched,
@@ -2441,7 +2444,7 @@ export const Codex: React.FC<CodexProps> = ({
       });
     } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
       const arrayBuffer = await file.arrayBuffer();
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const loadingTask = safePdfjsLib.getDocument({ data: arrayBuffer });
       const pdf = await loadingTask.promise;
       let fullText = '';
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -3744,7 +3747,7 @@ export const Codex: React.FC<CodexProps> = ({
       let effectiveSystemInstruction = systemInstruction;
       let finalInput = currentInputRaw;
 
-      // 如果有引用的消息，将其内容注入到当前指令的上下文中，确保大模型和意图解析大脑能够读取并理解引用的具体内容
+      // 如果有引用的消息，将其内容注入到当前指令的上下文中，确保大模型和意图引导大脑能够读取并理解引用的具体内容
       if (currentQuoteObj) {
         const quoteSender = currentQuoteObj.role === 'user' ? '用户' : (currentQuoteObj.agentName || '小逻');
         const quoteContent = currentQuoteObj.content || (currentQuoteObj.type === 'image' ? '[图片]' : currentQuoteObj.type === 'video' ? '[视频]' : '[文件]');
@@ -4044,7 +4047,7 @@ export const Codex: React.FC<CodexProps> = ({
             finalInputWithContext = `${historyParts.join('\n\n')}\n\n---\n\n【用户最新指令（可能是调整上面的步骤，也可能是全新的需求，请根据其上下文智慧解析）】：\n${finalInput}`;
           }
 
-          // 意图解析 & 多模态流水线大脑
+          // 意图引导 & 多模态流水线大脑
           const intentPlan = await intentEngine.analyzeUserIntent(finalInputWithContext, config);
           
           if (intentPlan.isPipeline && intentPlan.steps && intentPlan.steps.length > 0) {
@@ -4080,7 +4083,7 @@ export const Codex: React.FC<CodexProps> = ({
             setIsGenerating(false);
             return;
           } else {
-            responseContent = intentPlan.response || '意图解析未生成有效内容。';
+            responseContent = intentPlan.response || '意图引导未生成有效内容。';
           }
         } else if (chatTargetId === 'script_analyzer') {
           response = await scriptAnalyzerAgent.callApi('script', 'generateContent', {
@@ -4198,6 +4201,15 @@ export const Codex: React.FC<CodexProps> = ({
     }
   }, [onRegisterInsertDividerRef, handleInsertDivider]);
 
+  useEffect(() => {
+    if (onRegisterClearHistoryRef) {
+      onRegisterClearHistoryRef(clearChatHistory);
+      return () => {
+        onRegisterClearHistoryRef(null);
+      };
+    }
+  }, [onRegisterClearHistoryRef, clearChatHistory]);
+
   const handleJumpToMessage = (id: string) => {
     const element = document.getElementById(`msg-${id}`);
     if (element) {
@@ -4219,10 +4231,10 @@ export const Codex: React.FC<CodexProps> = ({
       : null;
 
     return (
-      <div className="flex h-full w-full bg-[#f3f3f3] overflow-hidden">
+      <div className="flex h-full w-full bg-white overflow-hidden">
         <div className="flex-1 flex flex-col min-w-0 relative h-full">
           {/* Chat Stream with custom scrollbar and background */}
-          <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 pt-6 pb-6 custom-scrollbar-chat bg-[#f3f3f3]">
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 pb-6 custom-scrollbar-chat bg-white">
             <div className="max-w-4xl mx-auto flex flex-col space-y-2">
               {/* 10-day Retention Banner */}
               <div className="flex items-center justify-center mb-8">
@@ -4272,7 +4284,7 @@ export const Codex: React.FC<CodexProps> = ({
                 );
               })}
 
-              {isGenerating && (
+              {isGenerating && (chatTargetId.endsWith('_ai') || !chatTargetId.startsWith('group_')) && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -4751,7 +4763,7 @@ export const Codex: React.FC<CodexProps> = ({
   return (
     <div 
       onDragOver={handleDragOver}
-      className="h-full flex flex-col bg-[#f3f3f3] overflow-hidden relative font-sans"
+      className="h-full flex flex-col bg-white overflow-hidden relative font-sans"
     >
 
 
@@ -4770,7 +4782,7 @@ export const Codex: React.FC<CodexProps> = ({
             <div className="p-6 bg-white rounded-full shadow-lg border border-emerald-100 flex items-center justify-center text-emerald-500 mb-4 animate-bounce">
               <Paperclip className="w-8 h-8" />
             </div>
-            <h3 className="text-base font-black text-emerald-900 tracking-wide mb-1.5">松开鼠标，添加附件至 意图解析</h3>
+            <h3 className="text-base font-black text-emerald-900 tracking-wide mb-1.5">松开鼠标，添加附件至 意图引导</h3>
             <p className="text-xs text-emerald-700 font-bold max-w-lg text-center leading-relaxed px-6">
               支持拖拽文档 (txt, doc, docx, pdf, xls, xlsx, ppt, pptx)、图片、视频与代码文件 (js, ts, py, java, cpp, html, css, json)。
             </p>
@@ -4779,32 +4791,34 @@ export const Codex: React.FC<CodexProps> = ({
       </AnimatePresence>
       
       {/* 顶部区域：超级员工与对话切换 */}
-      <div className="flex-none p-4 border-b border-gray-200/50 bg-white/80 backdrop-blur-md z-20 flex items-center justify-between shadow-sm">
-        <div />
+      {(!onRegisterClearHistoryRef || onClose) && (
+        <div className="flex-none p-4 border-b border-gray-200/50 bg-white/80 backdrop-blur-md z-20 flex items-center justify-between shadow-sm">
+          <div />
 
-        <div className="flex items-center space-x-2">
-          {activeSubTab === 'groupChat' && (
-            <button 
-              onClick={clearChatHistory}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-colors rounded-lg text-[10px] font-black border border-rose-100/20"
-              title="清空对话记录"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>清空记录</span>
-            </button>
-          )}
+          <div className="flex items-center space-x-2">
+            {activeSubTab === 'groupChat' && !onRegisterClearHistoryRef && (
+              <button 
+                onClick={clearChatHistory}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 hover:bg-rose-100 hover:text-rose-600 transition-colors rounded-lg text-[10px] font-black border border-rose-100/20"
+                title="清空对话记录"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>清空记录</span>
+              </button>
+            )}
 
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center border border-slate-200/20"
-              title="收起协同空间"
-            >
-              <Minimize2 className="w-4 h-4" />
-            </button>
-          )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center border border-slate-200/20"
+                title="收起协同空间"
+              >
+                <Minimize2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {hideInput && activeSubTab === 'groupChat' && !hideTopControls && (
         <div className="flex-none px-6 py-2.5 border-b border-gray-200/40 bg-[#f9f9f9] z-10 flex items-center space-x-3 flex-wrap gap-y-2">

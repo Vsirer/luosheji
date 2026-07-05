@@ -139,7 +139,7 @@ export const EPISODE_OPTIONS = [
 
 export const SEGMENT_DURATION_OPTIONS = [
   { id: '15s', label: '15s' },
-  { id: 'random', label: '4-15s 随机' },
+  { id: 'random', label: '4-15s随机' },
   { id: 'random-30', label: '4-30s 随机' }
 ];
 
@@ -241,14 +241,6 @@ export const DEFAULT_CONFIG: Config = {
     project: '',
     accessKeyId: '',
     secretKey: ''
-  },
-  videoOmni: {
-    provider: 'Third Party',
-    endpoint: 'https://api.vectorengine.ai',
-    path: '',
-    model: 'omni-flash',
-    apiKey: '',
-    protocolType: 'openai'
   },
   gptImage: {
     provider: 'Third Party',

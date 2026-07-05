@@ -10,6 +10,7 @@ function cn(...inputs: ClassValue[]) {
 import { 
   Search, 
   Plus, 
+  Upload,
   Sparkles, 
   Bot, 
   Cpu, 
@@ -75,6 +76,34 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
       return [];
     }
   });
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setActiveTab('create');
+        setIsEditing(null);
+        setFormName(file.name.replace(/\.md$/i, ''));
+        setFormInstruction(content);
+        setFormDesc('');
+        setFormIcon('📝');
+        setFormIsPublic(true);
+        setFormCustomOptions([]);
+        setFormCategory('text');
+      }
+    };
+    reader.readAsText(file);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const EMOJI_OPTIONS = [
     '🧠', '✍️', '🎬', '📊', '🎨', '🚀', '🔬', '💡', '🔥', '⚙️', 
@@ -401,28 +430,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
               <span className="relative z-10 tracking-wider">plugin</span>
             </button>
 
-            {user?.role === 'admin' && (
-              <button
-                onClick={() => {
-                  setCategory('api');
-                }}
-                className={`relative px-5 py-2.5 text-xs font-black rounded-xl transition-all duration-300 flex items-center space-x-2 cursor-pointer z-10 ${
-                  category === 'api'
-                    ? 'text-indigo-600 font-extrabold'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {category === 'api' && (
-                  <motion.div
-                    layoutId="activeCategoryBg"
-                    className="absolute inset-0 bg-white rounded-xl shadow-xs border border-slate-100"
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                  />
-                )}
-                <Settings className={`w-4 h-4 relative z-10 transition-transform duration-300 ${category === 'api' ? 'scale-110 text-indigo-600' : 'text-slate-400'}`} />
-                <span className="relative z-10 tracking-wider">API接口</span>
-              </button>
-            )}
+
           </div>
         </div>
         
@@ -510,6 +518,21 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
                   )}
                   <Plus className={`w-4 h-4 relative z-10 transition-transform duration-300 ${activeTab === 'create' ? 'scale-110 text-indigo-600' : 'text-slate-400'}`} />
                   <span className="relative z-10">{isEditing ? '修改自定义技能' : '创建Skill'}</span>
+                </button>
+
+                <input
+                  type="file"
+                  accept=".md"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="group relative px-4 py-2.5 text-xs font-bold rounded-xl transition-all duration-300 cursor-pointer flex items-center space-x-2 shrink-0 text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                >
+                  <Upload className="w-4 h-4 relative z-10 transition-transform duration-300 text-slate-400 group-hover:text-slate-600" />
+                  <span className="relative z-10">上传.md</span>
                 </button>
               </div>
             </div>

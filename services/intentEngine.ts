@@ -85,7 +85,7 @@ const INTENT_ENGINE_SYSTEM_INSTRUCTION = `
 你是 **小逻-多模态AI意图操作系统 (AI Intent OS)** 的核心调度与执行链规划大脑。
 作为操作系统的大脑，你的核心职责是：
 
-1. **动态意图解析与自适应创意工作流（核心规范）**：
+1. **动态意图引导与自适应创意工作流（核心规范）**：
    - **拒绝死板硬编码模板**：用户提出的创意需求可能是各种各样的（传统商业广告、短视频带货、剧情短剧、单次海报设计、文案策划、Logo三视图、VR全景图、科幻分镜头剧本等）。你必须深度理解用户的真实意图，为其【自适应量身定制规划一条最合理的执行流水线】。
    - **多文本模块深度解耦**：当用户请求如“传统广告全流程”或“深入商业策划”时，文本（script）类阶段**绝对不能只用一个笼统的“剧本创作”步骤替代**！你必须精细化拆解为多个逻辑递进的深层专业文本模块：
      * 例如：【1. 品牌策略 (Strategy)】->【2. 创意主题与黄金Slogan (Concept & Slogan)】->【3. 脚本配音旁白与字幕 (Copywriting)】->【4. 分镜机位与绘图提示词设计 (Shot & Visual Prompt)】。
@@ -257,14 +257,18 @@ export class IntentEngine extends BaseAgent {
           });
         }
         return parsed as IntentPlan;
+      } else {
+        if (scriptModel !== "gemini-3.5-flash") {
+          throw new Error("接口返回内容无法解析为结构化意图（非合法的 JSON 格式）。请确保您的接口输出格式正常。");
+        }
       }
     } catch (err: any) {
-      console.error(">>> [IntentEngine] Failed to parse intent with LLM:", err);
+      console.warn(">>> [IntentEngine] Failed to parse intent with LLM:", err);
       const errorMsg = err.message || String(err);
       return {
         isPipeline: false,
         response: `#### ⚠️ 无法连接到选定大模型 (${scriptModel})
-您当前选择的底层文本大模型为 **${scriptModel}**，但在尝试连接该模型进行意图解析时发生了错误：
+您当前选择的底层文本大模型为 **${scriptModel}**，但在尝试连接该模型进行意图引导时发生了错误：
 
 > **${errorMsg}**
 
@@ -555,7 +559,7 @@ export class IntentEngine extends BaseAgent {
       isPipeline: false,
       response: `#### 🚀 小逻·操作系统大模型与SKILL画像
 - ⚡ **底层动力模型**: \`${scriptModel}\` (创意剧本/大模型，当前会话的核心理解引擎)
-- 🛠 **推荐就绪SKILL**: \`通用意图解析专家 (general-intent)\` - 自动分析自然语言并智选最佳的生成式微观模型
+- 🛠 **推荐就绪SKILL**: \`通用意图引导专家 (general-intent)\` - 自动分析自然语言并智选最佳的生成式微观模型
 - 💡 **小逻建议**: 您好！我是小逻。我已经为您加载并准备好了系统的多模态大模型动力舱以及全部 SKILL 技能（包括：**相机调整**、**角色设定图**、**场景方案**、**九宫格分镜**、**VR全景世界**、**编剧专家**、**剧本分析** 等）。
 
 如果您需要我执行具体的专业任务，请直接下达指令，例如：

@@ -20,7 +20,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ config, setConfig, onC
     setLocalConfig(config);
   }, [config]);
   
-  const handleTestConnection = async (type: 'script' | 'image' | 'videoSeedance' | 'videoSeedanceMini' | 'videoOmni' | 'gptImage' | 'claudeSonnet') => {
+  const handleTestConnection = async (type: 'script' | 'image' | 'videoSeedance' | 'videoSeedanceMini' | 'gptImage' | 'claudeSonnet') => {
     const section = (localConfig[type as keyof Config] || DEFAULT_CONFIG[type as keyof Config]) as any;
     
     // Validate based on type
@@ -74,7 +74,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ config, setConfig, onC
     }, 1500);
   };
 
-  const renderConfigSection = (type: 'script' | 'image' | 'videoSeedance' | 'videoSeedanceMini' | 'videoOmni' | 'gptImage' | 'claudeSonnet', title: string, icon: React.ReactNode) => {
+  const renderConfigSection = (type: 'script' | 'image' | 'videoSeedance' | 'videoSeedanceMini' | 'gptImage' | 'claudeSonnet', title: string, icon: React.ReactNode) => {
     const section = (localConfig[type as keyof Config] || DEFAULT_CONFIG[type as keyof Config]) as any;
     const status = testStatus[type];
     return (
