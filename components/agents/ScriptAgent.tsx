@@ -79,7 +79,7 @@ export const ScriptAgent: React.FC<ScriptAgentProps> = ({ config, userPoints, de
       }));
 
       const response = await directorAgent.callApi('script', 'generateContent', {
-        model: config.script.model || 'gemini-1.5-pro',
+        model: config.script.model || 'gemini-3.5-flash',
         contents,
         config: {
           systemInstruction: customDescription || SCRIPT_AGENT_SYSTEM_INSTRUCTION,

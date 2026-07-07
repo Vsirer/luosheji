@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
+import { WebSandbox } from './os/WebSandbox';
+import { GenerativeUI } from './os/GenerativeUI';
+import { PipelineTuningModal } from './os/PipelineTuningModal';
 import { 
   MessageSquare, 
   Users, 
@@ -170,7 +173,7 @@ import { AI_SKILLS, AiSkill } from '../skills';
 import { PLUGINS } from '../plugin';
 import { SkillsModal } from './SkillsModal';
 
-const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDownload, handleView, onQuote, onRecall, onImageClick, onJump, isSameSenderAsNext, isSameSenderAsPrev, setMessages, runPipelineSteps, editingStep, setEditingStep, onRetryStep, setHistory }: { 
+const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDownload, handleView, onQuote, onRecall, onImageClick, onJump, isSameSenderAsNext, isSameSenderAsPrev, setMessages, runPipelineSteps, editingStep, setEditingStep, onRetryStep, setHistory, setTuningPipelineMsgId, onConvertToPipeline }: { 
   msg: Message, 
   currentUserId?: string | number,
   currentUserName?: string,
@@ -187,7 +190,9 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
   editingStep: any,
   setEditingStep: (val: any) => void,
   onRetryStep?: (messageId: string | number, stepId: string) => void,
-  setHistory?: React.Dispatch<React.SetStateAction<any[]>>
+  setHistory?: React.Dispatch<React.SetStateAction<any[]>>,
+  setTuningPipelineMsgId?: React.Dispatch<React.SetStateAction<any>>,
+  onConvertToPipeline?: (msg: Message) => void
 }) => {
   const isUser = msg.role === 'user' || (msg.senderId !== undefined && currentUserId !== undefined && String(msg.senderId) === String(currentUserId));
   const isAttachment = ['image', 'video', 'audio', 'file'].includes(msg.type || '');
@@ -291,6 +296,22 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                   ) : (
                     <p className="select-text">{msg.content}</p>
                   )}
+                </div>
+              )}
+
+              {!isUser && !isAttachment && !msg.pipelinePlan && msg.content && onConvertToPipeline && (
+                <div className="mt-3.5 pt-3 border-t border-dashed border-gray-100/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 select-none">
+                  <div className="flex items-center space-x-1.5 text-[11px] text-gray-500 font-medium">
+                    <span className="text-[12px] animate-pulse">💡</span>
+                    <span>对当前创意方案满意？可一键升级为多模态执行流水线</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onConvertToPipeline(msg)}
+                    className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 hover:border-indigo-300 rounded-lg text-[11px] font-bold transition-all active:scale-95 cursor-pointer flex items-center space-x-1 shrink-0 shadow-sm"
+                  >
+                    <span>🎨 生成意图作战沙盘</span>
+                  </button>
                 </div>
               )}
 
@@ -482,8 +503,8 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                           isSkipped ? 'bg-gray-50/40 border-gray-100' :
                           'bg-gray-50/50 border-gray-100'
                         }`}>
-                          <div className="flex items-center justify-between min-w-0 w-full">
-                            <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
+                          <div className="flex items-start justify-between min-w-0 w-full">
+                            <div className="flex items-start space-x-2 min-w-0 flex-1 mr-2 pt-0.5">
                               {/* Checkbox for selection (only if not started) */}
                               {!hasStarted && (
                                 <input 
@@ -522,7 +543,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                 isSkipped ? 'bg-gray-100 text-gray-400' :
                                 'bg-gray-200 text-gray-500'
                               }`}>
-                                {step.type === 'script' ? '✍️' : step.type === 'image' ? '🎨' : '🎬'}
+                                {step.type === 'script' ? '✍️' : step.type === 'image' ? '🎨' : step.type === 'video' ? '🎬' : step.type === 'code' ? '💻' : step.type === 'ui' ? '✨' : '⚙️'}
                               </div>
                               <div className="flex flex-col min-w-0 flex-1">
                                 <span className={`text-[13px] font-bold whitespace-normal break-words ${
@@ -533,20 +554,15 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                   isSkipped ? 'text-gray-400 line-through' :
                                   'text-gray-700'
                                 }`}>{step.label}</span>
-                                {step.prompt && isEnabled && !isRunning && !isCompleted && (
-                                  <span className="text-[10.5px] text-gray-400 max-w-full whitespace-normal break-words leading-tight mt-0.5 block" title={step.prompt}>
-                                    {step.prompt}
-                                  </span>
-                                )}
                               </div>
                             </div>
                             
                             {/* Action Buttons & Status Pill */}
-                            <div className="flex items-center space-x-1.5 shrink-0">
-                              {!hasStarted && isEnabled && (
-                                <div className="flex items-center space-x-0.5 mr-1.5 opacity-65 hover:opacity-100 transition-opacity">
+                            <div className="flex flex-col items-end justify-start space-y-2 shrink-0 ml-2">
+                              {isEnabled && !isRunning && (
+                                <div className="flex items-center space-x-1 opacity-65 hover:opacity-100 transition-opacity bg-white border border-indigo-100 shadow-sm rounded-md py-1 px-1.5">
                                   <button
-                                    title="编辑步骤"
+                                    title="编辑步骤需求"
                                     onClick={() => setEditingStep({
                                       msgId: msg.id,
                                       stepId: step.id,
@@ -557,67 +573,74 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                       duration: step.duration,
                                       skillId: step.skillId
                                     })}
-                                    className="p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
+                                    className="p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer flex items-center space-x-1"
                                   >
                                     <span className="text-[12px]">✏️</span>
+                                    <span className="text-[10px] font-bold text-indigo-700/80">修改需求</span>
                                   </button>
-                                  <button
-                                    title="上移"
-                                    disabled={idx === 0}
-                                    onClick={() => {
-                                      setMessages(prev => prev.map(m => {
-                                        if (m.id === msg.id && m.pipelinePlan) {
-                                          const steps = [...m.pipelinePlan.steps];
-                                          if (idx > 0) {
-                                            const temp = steps[idx];
-                                            steps[idx] = steps[idx - 1];
-                                            steps[idx - 1] = temp;
-                                          }
-                                          return { ...m, pipelinePlan: { ...m.pipelinePlan, steps } };
-                                        }
-                                        return m;
-                                      }));
-                                    }}
-                                    className={`p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer ${idx === 0 ? 'opacity-30 cursor-not-allowed' : ''}`}
-                                  >
-                                    <span className="text-[12px]">▲</span>
-                                  </button>
-                                  <button
-                                    title="下移"
-                                    disabled={idx === msg.pipelinePlan.steps.length - 1}
-                                    onClick={() => {
-                                      setMessages(prev => prev.map(m => {
-                                        if (m.id === msg.id && m.pipelinePlan) {
-                                          const steps = [...m.pipelinePlan.steps];
-                                          if (idx < steps.length - 1) {
-                                            const temp = steps[idx];
-                                            steps[idx] = steps[idx + 1];
-                                            steps[idx + 1] = temp;
-                                          }
-                                          return { ...m, pipelinePlan: { ...m.pipelinePlan, steps } };
-                                        }
-                                        return m;
-                                      }));
-                                    }}
-                                    className={`p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer ${idx === msg.pipelinePlan.steps.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}`}
-                                  >
-                                    <span className="text-[12px]">▼</span>
-                                  </button>
-                                  <button
-                                    title="删除步骤"
-                                    onClick={() => {
-                                      setMessages(prev => prev.map(m => {
-                                        if (m.id === msg.id && m.pipelinePlan) {
-                                          const steps = m.pipelinePlan.steps.filter((s: any) => s.id !== step.id);
-                                          return { ...m, pipelinePlan: { ...m.pipelinePlan, steps } };
-                                        }
-                                        return m;
-                                      }));
-                                    }}
-                                    className="p-1 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                                  >
-                                    <span className="text-[12px]">🗑️</span>
-                                  </button>
+                                  
+                                  {!hasStarted && (
+                                    <>
+                                      <div className="w-[1px] h-3 bg-gray-200" />
+                                      <button
+                                        title="上移"
+                                        disabled={idx === 0}
+                                        onClick={() => {
+                                          setMessages(prev => prev.map(m => {
+                                            if (m.id === msg.id && m.pipelinePlan) {
+                                              const steps = [...m.pipelinePlan.steps];
+                                              if (idx > 0) {
+                                                const temp = steps[idx];
+                                                steps[idx] = steps[idx - 1];
+                                                steps[idx - 1] = temp;
+                                              }
+                                              return { ...m, pipelinePlan: { ...m.pipelinePlan, steps } };
+                                            }
+                                            return m;
+                                          }));
+                                        }}
+                                        className={`p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer ${idx === 0 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                      >
+                                        <span className="text-[12px]">▲</span>
+                                      </button>
+                                      <button
+                                        title="下移"
+                                        disabled={idx === msg.pipelinePlan.steps.length - 1}
+                                        onClick={() => {
+                                          setMessages(prev => prev.map(m => {
+                                            if (m.id === msg.id && m.pipelinePlan) {
+                                              const steps = [...m.pipelinePlan.steps];
+                                              if (idx < steps.length - 1) {
+                                                const temp = steps[idx];
+                                                steps[idx] = steps[idx + 1];
+                                                steps[idx + 1] = temp;
+                                              }
+                                              return { ...m, pipelinePlan: { ...m.pipelinePlan, steps } };
+                                            }
+                                            return m;
+                                          }));
+                                        }}
+                                        className={`p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer ${idx === msg.pipelinePlan.steps.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                      >
+                                        <span className="text-[12px]">▼</span>
+                                      </button>
+                                      <button
+                                        title="删除步骤"
+                                        onClick={() => {
+                                          setMessages(prev => prev.map(m => {
+                                            if (m.id === msg.id && m.pipelinePlan) {
+                                              const steps = m.pipelinePlan.steps.filter((s: any) => s.id !== step.id);
+                                              return { ...m, pipelinePlan: { ...m.pipelinePlan, steps } };
+                                            }
+                                            return m;
+                                          }));
+                                        }}
+                                        className="p-1 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                      >
+                                        <span className="text-[12px]">🗑️</span>
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               )}
 
@@ -628,10 +651,23 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                 </span>
                               )}
                               {isCompleted && (
-                                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-700 flex items-center space-x-1">
-                                  <span>✓</span>
-                                  <span>已完成</span>
-                                </span>
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-700 flex items-center space-x-1">
+                                    <span>✓</span>
+                                    <span>已完成</span>
+                                  </span>
+                                  {onRetryStep && (
+                                    <button
+                                      type="button"
+                                      title="修改需求后，可重新生成本步骤及后续步骤"
+                                      onClick={() => onRetryStep(msg.id, step.id)}
+                                      className="px-2 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-[10px] font-bold text-indigo-700 flex items-center space-x-1 transition-all cursor-pointer shadow-sm active:scale-95"
+                                    >
+                                      <span>🔄</span>
+                                      <span>重新生成</span>
+                                    </button>
+                                  )}
+                                </div>
                               )}
                               {isFailed && (
                                 <div className="flex items-center space-x-1.5">
@@ -670,6 +706,17 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                               )}
                             </div>
                           </div>
+                          
+                          {/* 规划需求 / 创意描述 - 宽度优化显示，与下方结果对齐 */}
+                          {step.prompt && isEnabled && !isRunning && (
+                            <div className="mt-2 ml-9 text-[11.5px] text-gray-600 border-l-2 border-indigo-100 pl-3 bg-indigo-50/15 py-2 pr-2.5 rounded-r shadow-xs">
+                              <div className="text-indigo-600 font-semibold text-[10.5px] mb-1 select-none flex items-center space-x-1">
+                                <span className="text-[12px]">📌</span>
+                                <span>规划需求 / 创意描述：</span>
+                              </div>
+                              <p className="whitespace-pre-wrap break-words leading-relaxed text-gray-600 font-normal">{step.prompt}</p>
+                            </div>
+                          )}
                           
                           {/* Inner Output Renderers */}
                           {isCompleted && step.output && (
@@ -711,6 +758,26 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                     <div className="absolute inset-0 flex items-center justify-center bg-black/10">
                                       <PlayCircle className="w-6 h-6 text-white drop-shadow-md" />
                                     </div>
+                                  </div>
+                                </div>
+                              )}
+                              {step.type === 'ui' && step.output.code && (
+                                <div className="space-y-1.5 mt-2">
+                                  <p className="text-[12px] font-bold text-gray-800 flex items-center space-x-1">
+                                    <span>✨ 生成式UI (Generative UI):</span>
+                                  </p>
+                                  <div className="w-full h-[350px]">
+                                    <GenerativeUI intent={step.label} uiSchema={step.output.code} />
+                                  </div>
+                                </div>
+                              )}
+                              {step.type === 'code' && step.output.code && (
+                                <div className="space-y-1.5 mt-2">
+                                  <p className="text-[12px] font-bold text-gray-800 flex items-center space-x-1">
+                                    <span>💻 前端沙箱执行结果 (Web Sandbox):</span>
+                                  </p>
+                                  <div className="w-full h-[350px]">
+                                    <WebSandbox code={step.output.code} />
                                   </div>
                                 </div>
                               )}
@@ -762,150 +829,191 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                   </div>
 
                   {/* Action Bar for Execution */}
-                  {!msg.pipelinePlan.started && (
-                    <div className="mt-4 pt-3 border-t border-indigo-100/50 flex flex-col space-y-3">
-                      {msg.pipelinePlan.showTuningTips && (
-                        <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-100/60 text-[11px] text-indigo-800 leading-relaxed font-medium">
-                          💡 **微调建议**: 您可以直接在上面的节点列表中，点击每个步骤最右侧的按钮来**添加/删除步骤**、**拖拽排序**，或点击**编辑图标**直接微调创意提示词！修改满意后，点击下方 **【✅ 确认并部署沙盘】** 即可在画布上排兵布阵！
-                        </div>
-                      )}
+                  <div className="mt-4 pt-3 border-t border-indigo-100/50 flex flex-col space-y-3">
+                    {msg.pipelinePlan.showTuningTips && !msg.pipelinePlan.started && (
+                      <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-100/60 text-[11px] text-indigo-800 leading-relaxed font-medium">
+                        💡 **微调建议**: 您可以直接在上面的节点列表中，点击每个步骤最右侧的按钮来**添加/删除步骤**、**拖拽排序**，或点击**编辑图标**直接微调创意提示词！修改满意后，点击下方 **【✅ 添加至画布】** 即可在画布上排兵布阵！
+                      </div>
+                    )}
 
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-gray-500 font-medium">
-                          共 {msg.pipelinePlan.steps.filter((s: any) => s.enabled !== false).length} / {msg.pipelinePlan.steps.length} 个执行步骤
-                        </span>
-                        
-                        <div className="flex items-center space-x-1.5">
-                          {!msg.pipelinePlan.generatedOnCanvas ? (
-                            <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-gray-500 font-medium">
+                        共 {msg.pipelinePlan.steps.filter((s: any) => s.enabled !== false).length} / {msg.pipelinePlan.steps.length} 个执行步骤
+                      </span>
+                      
+                      <div className="flex items-center space-x-1.5">
+                        {!msg.pipelinePlan.generatedOnCanvas ? (
+                          <>
+                            {!msg.pipelinePlan.started && (
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setMessages(prev => prev.map(m => {
-                                    if (m.id === msg.id && m.pipelinePlan) {
-                                      return {
-                                        ...m,
-                                        pipelinePlan: {
-                                          ...m.pipelinePlan,
-                                          showTuningTips: true
-                                        }
-                                      };
-                                    }
-                                    return m;
-                                  }));
+                                  setTuningPipelineMsgId(msg.id);
                                 }}
                                 className="px-2.5 py-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-55/40 rounded-lg text-[11.5px] font-bold transition-all cursor-pointer flex items-center space-x-1 shrink-0"
                               >
                                 <span>✏️ 我要微调</span>
                               </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const enabledSteps = msg.pipelinePlan.steps.filter((s: any) => s.enabled !== false);
-                                  if (enabledSteps.length === 0) {
-                                    alert('请至少保留一个需要执行的步骤！');
-                                    return;
-                                  }
-
-                                  // Instantiate nodes on the canvas
-                                  const canvasNodes = enabledSteps.map((step: any, idx: number) => {
-                                    const startX = 150;
-                                    const spacing = 420;
-                                    const nodeX = startX + idx * spacing;
-                                    const nodeY = 180;
-                                    const parentId = idx > 0 ? enabledSteps[idx - 1].id : undefined;
-
-                                    return {
-                                      id: step.id,
-                                      type: step.type === 'script' ? 'gen_script' : step.type,
-                                      status: 'pipeline_pending',
-                                      timestamp: Date.now() + idx,
-                                      parentId: parentId || '',
-                                      position: { x: nodeX, y: nodeY },
-                                      canvasId: 'default',
-                                      config: {
-                                        title: step.label,
-                                        prompt: step.prompt,
-                                        revisedPrompt: step.prompt,
-                                        skillId: step.skillId || (step.type === 'image' ? 'image-generation' : step.type === 'video' ? 'video-generation' : 'script-generation'),
-                                        aspectRatio: step.aspectRatio || '1:1',
-                                        duration: step.duration || '5',
-                                        isPipelineNode: true,
-                                        pipelineId: msg.id
-                                      }
-                                    };
-                                  });
-
-                                  if (setHistory) {
-                                    const stepIds = new Set(enabledSteps.map((s: any) => s.id));
-                                    setHistory(prev => {
-                                      const cleaned = prev.filter(item => !stepIds.has(item.id));
-                                      return [...canvasNodes, ...cleaned];
-                                    });
-                                  }
-
-                                  // Update message state to show generated on canvas
-                                  setMessages(prev => prev.map(m => {
-                                    if (m.id === msg.id) {
-                                      return {
-                                        ...m,
-                                        content: `🎨 **意图作战沙盘已成功部署！**\n您可以在画布上直观查看、编辑每个节点的详细描述与画幅/时长参数。满意后，点击画布右侧或下方按钮即可正式启动多模态渲染流程。`,
-                                        pipelinePlan: {
-                                          ...m.pipelinePlan,
-                                          generatedOnCanvas: true
-                                        }
-                                      };
-                                    }
-                                    return m;
-                                  }));
-                                }}
-                                className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-[#4338ca] text-white font-bold text-[11.5px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer shrink-0"
-                              >
-                                <span>✅ 确认并部署沙盘</span>
-                              </button>
-                            </>
-                          ) : (
+                            )}
                             <button
                               type="button"
                               onClick={() => {
-                                // Start pipeline execution!
-                                const updatedPlan = { 
-                                  ...msg.pipelinePlan, 
-                                  started: true 
-                                };
+                                const enabledSteps = msg.pipelinePlan.steps.filter((s: any) => s.enabled !== false);
+                                if (enabledSteps.length === 0) {
+                                  alert('请至少保留一个需要执行的步骤！');
+                                  return;
+                                }
 
+                                // Instantiate nodes on the canvas
+                                const canvasNodes = enabledSteps.map((step: any, idx: number) => {
+                                  const startX = 150;
+                                  const spacing = 420;
+                                  const nodeX = startX + idx * spacing;
+                                  const nodeY = 180;
+                                  const parentId = idx > 0 ? enabledSteps[idx - 1].id : undefined;
+
+                                  // Preserve status for already running or completed steps
+                                  let nodeStatus = 'pipeline_pending';
+                                  if (step.status === 'running') nodeStatus = 'running';
+                                  else if (step.status === 'completed' || step.status === 'success') nodeStatus = 'success';
+                                  else if (step.status === 'failed') nodeStatus = 'error';
+
+                                  let imageUrl = step.type === 'image' && step.output ? step.output.url : undefined;
+                                  let videoUrl = step.type === 'video' && step.output ? step.output.url : undefined;
+                                  
+                                  return {
+                                    id: step.id,
+                                    type: step.type === 'script' ? 'gen_script' : step.type,
+                                    status: nodeStatus,
+                                    imageUrl,
+                                    videoUrl,
+                                    timestamp: Date.now() + idx,
+                                    parentId: parentId || '',
+                                    position: {
+                                      x: nodeX,
+                                      y: nodeY,
+                                      mindmap: { x: nodeX, y: nodeY },
+                                      bento: { x: nodeX, y: nodeY },
+                                      semi_auto: { x: nodeX, y: nodeY }
+                                    },
+                                    canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
+                                    config: {
+                                      title: step.label,
+                                      prompt: step.prompt,
+                                      revisedPrompt: step.prompt,
+                                      skillId: step.skillId || (step.type === 'image' ? 'image-generation' : step.type === 'video' ? 'video-generation' : 'script-generation'),
+                                      aspectRatio: step.aspectRatio || '1:1',
+                                      duration: step.duration || '5',
+                                      isPipelineNode: true,
+                                      pipelineId: msg.id
+                                    }
+                                  };
+                                });
+
+                                if (setHistory) {
+                                  const stepIds = new Set(enabledSteps.map((s: any) => s.id));
+                                  setHistory(prev => {
+                                    const cleaned = prev.filter(item => !stepIds.has(item.id));
+                                    return [...canvasNodes, ...cleaned];
+                                  });
+                                }
+
+                                // Update message state to show generated on canvas
                                 setMessages(prev => prev.map(m => {
                                   if (m.id === msg.id) {
                                     return {
                                       ...m,
-                                      pipelinePlan: updatedPlan,
-                                      content: '⏳ 正在启动 AI 多模态意图执行流水线...'
+                                      content: `🎨 **意图流水线已成功添加至画布！**\n您可以在画布上直观查看、编辑每个节点的详细描述与画幅/时长参数。` + (!m.pipelinePlan.started ? `满意后，点击画布右侧或下方按钮即可正式启动多模态渲染流程。` : ''),
+                                      pipelinePlan: {
+                                        ...m.pipelinePlan,
+                                        generatedOnCanvas: true
+                                      }
                                     };
                                   }
                                   return m;
                                 }));
-
-                                // Set canvas nodes to running
-                                if (setHistory) {
-                                  setHistory(prev => prev.map(h => 
-                                    (h.config as any)?.pipelineId === msg.id && h.status === 'pipeline_pending'
-                                      ? { ...h, status: 'running' }
-                                      : h
-                                  ));
-                                }
-
-                                runPipelineSteps(msg.id, updatedPlan, 0);
                               }}
-                              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-[12px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer animate-pulse"
+                              className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-[#4338ca] text-white font-bold text-[11.5px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer shrink-0"
                             >
-                              <span>▶️ 正式开始执行</span>
+                              <span>✅ 添加至画布</span>
                             </button>
-                          )}
-                        </div>
+                            
+                            {!msg.pipelinePlan.started && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Start pipeline execution!
+                                  const updatedPlan = { 
+                                    ...msg.pipelinePlan, 
+                                    started: true 
+                                  };
+                                  setMessages(prev => prev.map(m => {
+                                    if (m.id === msg.id) {
+                                      return { ...m, pipelinePlan: updatedPlan, content: '⏳ 正在启动 AI 多模态意图执行流水线...' };
+                                    }
+                                    return m;
+                                  }));
+                                  runPipelineSteps(msg.id, updatedPlan, 0);
+                                }}
+                                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-[12px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer animate-pulse"
+                              >
+                                <span>▶️ 立即执行</span>
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          !msg.pipelinePlan.started && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTuningPipelineMsgId(msg.id);
+                                }}
+                                className="px-2.5 py-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-55/40 rounded-lg text-[11.5px] font-bold transition-all cursor-pointer flex items-center space-x-1 shrink-0"
+                              >
+                                <span>⚙️ 全局微调</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Start pipeline execution!
+                                  const updatedPlan = { 
+                                    ...msg.pipelinePlan, 
+                                    started: true 
+                                  };
+
+                                  setMessages(prev => prev.map(m => {
+                                    if (m.id === msg.id) {
+                                      return {
+                                        ...m,
+                                        pipelinePlan: updatedPlan,
+                                        content: '⏳ 正在启动 AI 多模态意图执行流水线...'
+                                      };
+                                    }
+                                    return m;
+                                  }));
+
+                                  // Set canvas nodes to running
+                                  if (setHistory) {
+                                    setHistory(prev => prev.map(h => 
+                                      (h.config as any)?.pipelineId === msg.id && h.status === 'pipeline_pending'
+                                        ? { ...h, status: 'running' }
+                                        : h
+                                    ));
+                                  }
+
+                                  runPipelineSteps(msg.id, updatedPlan, 0);
+                                }}
+                                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-[12px] shadow-sm hover:shadow transition-all flex items-center space-x-1 cursor-pointer animate-pulse"
+                              >
+                                <span>▶️ 正式开始执行</span>
+                              </button>
+                            </>
+                          )
+                        )}
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
                 
@@ -1670,8 +1778,17 @@ export const Codex: React.FC<CodexProps> = ({
     };
   }, [onRegisterRemoveFileRef]);
 
+  const lastProcessedMaterialRef = useRef<any>(null);
+
   useEffect(() => {
-    if (initialMaterial && isActive) {
+    if (!initialMaterial) {
+      lastProcessedMaterialRef.current = null;
+    }
+  }, [initialMaterial]);
+
+  useEffect(() => {
+    if (initialMaterial && isActive && lastProcessedMaterialRef.current !== initialMaterial) {
+      lastProcessedMaterialRef.current = initialMaterial;
       const loadMaterial = async () => {
         try {
           const mimeType = initialMaterial.materialType || (initialMaterial.type.includes('/') ? initialMaterial.type : 'application/octet-stream');
@@ -1955,6 +2072,7 @@ export const Codex: React.FC<CodexProps> = ({
     fetchTeamContext();
   }, []);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [tuningPipelineMsgId, setTuningPipelineMsgId] = useState<string | null>(null);
   const [editingStep, setEditingStep] = useState<{
     msgId: string;
     stepId: string;
@@ -2342,6 +2460,29 @@ export const Codex: React.FC<CodexProps> = ({
               };
             }
           }
+
+          if (m.pipelinePlan?.steps?.some((s: any) => s.id === taskId)) {
+            updated = true;
+            const updatedSteps = m.pipelinePlan.steps.map((s: any) => {
+              if (s.id === taskId) {
+                return {
+                  ...s,
+                  status: status === "success" ? "completed" : "failed",
+                  error: status === "error" ? (errorMsg || "生成失败") : undefined,
+                  output: status === "success" ? { url: dataUrl } : s.output,
+                };
+              }
+              return s;
+            });
+            return {
+              ...m,
+              pipelinePlan: {
+                ...m.pipelinePlan,
+                steps: updatedSteps,
+              },
+            };
+          }
+
           return m;
         });
 
@@ -2942,6 +3083,126 @@ export const Codex: React.FC<CodexProps> = ({
     await globalHandleDownload(url, filename);
   };
 
+  const handleConvertTextToPipeline = async (sourceMsg: Message) => {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    
+    // Add a user action message to the chat stream
+    setMessages(prev => [...prev, {
+      id: `user_convert_${Date.now()}`,
+      role: 'user',
+      senderId: userId || currentUser?.id,
+      content: `🔄 针对上述方案，请一键生成并部署对应的【多模态意图作战沙盘】。`,
+      agentName: currentUser?.username || '我',
+      agentIcon: '👤',
+      timestamp: Date.now()
+    }]);
+
+    const timeoutTimer = setTimeout(() => {
+      setIsGenerating(false);
+    }, 90000);
+
+    try {
+      // Force pipeline conversion via special instruction in finalInput
+      const finalInputWithContext = `基于以下已经写好的文本方案/创意内容，请为其升级、深度拆解，并规划为一个包含多个多模态执行步骤的完整【多模态意图执行流水线】。
+你必须返回 isPipeline: true。
+
+【原方案/创意内容】：
+${sourceMsg.content}`;
+
+      const intentPlan = await intentEngine.analyzeUserIntent(finalInputWithContext, config);
+      
+      if (intentPlan.steps && intentPlan.steps.length > 0) {
+        const pipelineMsgId = `pipeline_${Date.now()}`;
+        
+        const stepsWithEnabled = intentPlan.steps.map((s: any) => ({
+          ...s,
+          enabled: true,
+          status: 'pending'
+        }));
+
+        const updatedPlan = {
+          ...intentPlan,
+          isPipeline: true,
+          steps: stepsWithEnabled,
+          started: false,
+          generatedOnCanvas: true
+        };
+
+        if (setHistory) {
+          const canvasNodes = stepsWithEnabled.map((step: any, idx: number) => {
+            const startX = 150;
+            const spacing = 420;
+            const nodeX = startX + idx * spacing;
+            const nodeY = 180;
+            const parentId = idx > 0 ? stepsWithEnabled[idx - 1].id : undefined;
+            
+            return {
+              id: step.id,
+              type: step.type === 'script' ? 'gen_script' : step.type,
+              status: 'pipeline_pending',
+              timestamp: Date.now() + idx,
+              parentId,
+              position: { x: nodeX, y: nodeY },
+              canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
+              config: {
+                title: step.label,
+                prompt: step.prompt,
+                revisedPrompt: step.prompt,
+                skillId: step.skillId || (step.type === 'image' ? 'image-generation' : step.type === 'video' ? 'video-generation' : 'script-generation'),
+                aspectRatio: step.aspectRatio || '1:1',
+                duration: step.duration || '5',
+                isPipelineNode: true,
+                pipelineId: pipelineMsgId
+              }
+            };
+          });
+          
+          setHistory(prev => {
+            const stepIds = new Set(stepsWithEnabled.map((s: any) => s.id));
+            const cleaned = prev.filter(item => !stepIds.has(item.id));
+            return [...canvasNodes, ...cleaned];
+          });
+        }
+
+        // Insert pipeline card
+        setMessages(prev => [...prev, {
+          id: pipelineMsgId,
+          role: 'assistant',
+          agentName: '小逻',
+          agentIcon: '🤖',
+          type: 'pipeline',
+          content: `🎨 **意图作战沙盘已根据文案创意成功部署！**\n\n执行计划说明：\n${intentPlan.rationale}\n\n您可以在画布上直观查看、编辑每个节点的详细描述与画幅/时长参数。满意后，点击右侧或下方按钮即可正式启动多模态渲染流程。`,
+          pipelinePlan: updatedPlan,
+          timestamp: Date.now()
+        }]);
+      } else {
+        // Fallback if no steps generated
+        setMessages(prev => [...prev, {
+          id: `convert_err_${Date.now()}`,
+          role: 'assistant',
+          agentName: '小逻',
+          agentIcon: '🤖',
+          content: `⚠️ 未能为您成功转换多模态沙盘，请尝试在对话中直接发送指令，如“为此方案生成配图和视频”。`,
+          timestamp: Date.now()
+        }]);
+      }
+    } catch (err: any) {
+      console.error("Convert to pipeline error:", err);
+      setMessages(prev => [...prev, {
+        id: `convert_err_${Date.now()}`,
+        role: 'assistant',
+        agentName: '小逻',
+        agentIcon: '🤖',
+        content: `❌ 转换时发生错误：${err.message || err}`,
+        timestamp: Date.now()
+      }]);
+    } finally {
+      clearTimeout(timeoutTimer);
+      setIsGenerating(false);
+    }
+  };
+
   const runPipelineSteps = async (
     pipelineMsgId: string | number,
     initialPlan: any,
@@ -3009,7 +3270,7 @@ export const Codex: React.FC<CodexProps> = ({
             if (token) {
               try {
                 const payload = {
-                  id: `pipe_${step.type}_${Date.now()}`,
+                  id: `result_${step.id}`,
                   type: step.type,
                   status: 'success',
                   imageUrl: step.type === 'image' ? result.url : null,
@@ -3035,26 +3296,55 @@ export const Codex: React.FC<CodexProps> = ({
                     result.url = ossUrl;
 
                     if (setHistory) {
-                      const historyItem = {
-                        id: step.id,
-                        type: step.type === 'script' ? 'gen_script' : step.type,
-                        status: 'success',
-                        imageUrl: step.type === 'image' ? ossUrl : undefined,
-                        videoUrl: step.type === 'video' ? ossUrl : undefined,
-                        timestamp: payload.timestamp,
-                        config: {
-                          ...payload.config,
-                          isPipelineNode: true,
-                          pipelineId: pipelineMsgId
-                        }
-                      };
                       setHistory(prev => {
-                        const exists = prev.some(h => h.id === step.id);
-                        if (exists) {
-                          return prev.map(h => h.id === step.id ? historyItem as any : h);
-                        } else {
-                          return [historyItem as any, ...prev];
-                        }
+                        const placeholder = prev.find(h => h.id === step.id);
+                        const posX = placeholder && placeholder.position ? placeholder.position.x : 150;
+                        const posY = placeholder && placeholder.position ? placeholder.position.y + 260 : 180 + 260;
+
+                        const updatedPlaceholder = placeholder ? {
+                          ...placeholder,
+                          status: 'pipeline_completed'
+                        } : null;
+
+                        const resultId = `result_${step.id}`;
+                        const contentItem = {
+                          id: resultId,
+                          parentId: step.id,
+                          type: step.type === 'script' ? 'gen_script' : step.type,
+                          status: 'success',
+                          imageUrl: step.type === 'image' ? ossUrl : undefined,
+                          videoUrl: step.type === 'video' ? ossUrl : undefined,
+                          timestamp: payload.timestamp,
+                          position: {
+                            x: posX,
+                            y: posY,
+                            mindmap: { x: posX, y: posY },
+                            bento: { x: posX, y: posY },
+                            semi_auto: { x: posX, y: posY }
+                          },
+                          canvasId: placeholder ? placeholder.canvasId : "default",
+                          config: {
+                            ...payload.config,
+                            isPipelineNode: true,
+                            pipelineId: pipelineMsgId
+                          }
+                        };
+
+                        const nextStep = updatedPlan.steps && updatedPlan.steps[i + 1];
+                        const nextStepId = nextStep ? nextStep.id : null;
+
+                        return prev.map(h => {
+                          if (h.id === step.id && updatedPlaceholder) {
+                            return updatedPlaceholder as any;
+                          }
+                          if (nextStepId && h.id === nextStepId) {
+                            return {
+                              ...h,
+                              parentId: resultId
+                            };
+                          }
+                          return h;
+                        }).concat(prev.some(h => h.id === resultId) ? [] : [contentItem as any]);
                       });
                     }
                   }
@@ -3104,7 +3394,7 @@ export const Codex: React.FC<CodexProps> = ({
                 "script",
                 "generateContent",
                 {
-                  model: config?.script?.model || "gemini-3.5-flash",
+                  model: config?.script?.model || "gemini-1.5-pro",
                   contents: [
                     {
                       role: "user",
@@ -3242,6 +3532,73 @@ export const Codex: React.FC<CodexProps> = ({
           outputs[step.id] = result;
           outputs[step.type] = result;
 
+          if (setHistory) {
+            setHistory(prev => {
+              const placeholder = prev.find(h => h.id === step.id);
+              const posX = placeholder && placeholder.position ? placeholder.position.x : 150;
+              const posY = placeholder && placeholder.position ? placeholder.position.y + 260 : 180 + 260;
+
+              const updatedPlaceholder = placeholder ? {
+                ...placeholder,
+                status: 'pipeline_completed'
+              } : null;
+
+              const resultId = `result_${step.id}`;
+              const existingContent = prev.find(h => h.id === resultId);
+
+              const contentItem = {
+                id: resultId,
+                parentId: step.id,
+                type: step.type === 'script' ? 'gen_script' : step.type,
+                status: 'success',
+                imageUrl: step.type === 'image' && result.url ? result.url : (existingContent ? existingContent.imageUrl : undefined),
+                videoUrl: step.type === 'video' && result.url ? result.url : (existingContent ? existingContent.videoUrl : undefined),
+                code: (step.type === 'ui' || step.type === 'code') && result.code ? result.code : (existingContent ? existingContent.code : undefined),
+                text: step.type === 'script' && result.text ? result.text : (existingContent ? existingContent.text : undefined),
+                timestamp: Date.now(),
+                position: {
+                  x: posX,
+                  y: posY,
+                  mindmap: { x: posX, y: posY },
+                  bento: { x: posX, y: posY },
+                  semi_auto: { x: posX, y: posY }
+                },
+                canvasId: placeholder ? placeholder.canvasId : "default",
+                config: {
+                  title: step.label,
+                  originalName: `${step.label}.${step.type === 'image' ? 'png' : step.type === 'video' ? 'mp4' : 'json'}`,
+                  isPipelineNode: true,
+                  pipelineId: pipelineMsgId
+                }
+              };
+
+              const nextStep = updatedPlan.steps && updatedPlan.steps[i + 1];
+              const nextStepId = nextStep ? nextStep.id : null;
+
+              let newHistory = prev.map(h => {
+                if (h.id === step.id && updatedPlaceholder) {
+                  return updatedPlaceholder as any;
+                }
+                if (nextStepId && h.id === nextStepId) {
+                  return {
+                    ...h,
+                    parentId: resultId
+                  };
+                }
+                if (h.id === resultId) {
+                  return contentItem as any;
+                }
+                return h;
+              });
+
+              if (!newHistory.some(h => h.id === resultId)) {
+                newHistory = [...newHistory, contentItem as any];
+              }
+
+              return newHistory;
+            });
+          }
+
           setMessages(prev => prev.map(m => {
             if (m.id === pipelineMsgId) {
               return { ...m, pipelinePlan: { ...updatedPlan } };
@@ -3284,11 +3641,11 @@ export const Codex: React.FC<CodexProps> = ({
         if (m.id === pipelineMsgId) {
           const allDone = updatedPlan.steps!.every((s: any) => s.status === 'completed');
 
-          const scriptM = config?.script?.model || "gemini-3.5-flash";
+          const scriptM = config?.script?.model || "gemini-1.5-pro";
           const imageM = config?.image?.model || "gemini-3.1-flash-image-preview";
           const videoM = config?.videoSeedance?.model || config?.video?.model || "seedance2.0";
 
-          const imageMLabel = imageM === "gemini-3.1-flash-image-preview" ? "nano banana 2" : "GPT-Image-2";
+          const imageMLabel = config?.image?.displayName || (imageM === "gemini-3.1-flash-image-preview" ? "nano banana 2" : "GPT-Image-2");
           const videoMLabel = videoM === "seedance-mini" ? "RH-SD2.0mini" : "RH-SD2.0";
 
           return {
@@ -4064,8 +4421,45 @@ export const Codex: React.FC<CodexProps> = ({
             const updatedPlan = {
               ...intentPlan,
               steps: stepsWithEnabled,
-              started: false
+              started: false,
+              generatedOnCanvas: true
             };
+
+            if (setHistory) {
+              const canvasNodes = stepsWithEnabled.map((step: any, idx: number) => {
+                const startX = 150;
+                const spacing = 420;
+                const nodeX = startX + idx * spacing;
+                const nodeY = 180;
+                const parentId = idx > 0 ? stepsWithEnabled[idx - 1].id : undefined;
+                
+                return {
+                  id: step.id,
+                  type: step.type === 'script' ? 'gen_script' : step.type,
+                  status: 'pipeline_pending',
+                  timestamp: Date.now() + idx,
+                  parentId,
+                  position: { x: nodeX, y: nodeY },
+                  canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
+                  config: {
+                    title: step.label,
+                    prompt: step.prompt,
+                    revisedPrompt: step.prompt,
+                    skillId: step.skillId || (step.type === 'image' ? 'image-generation' : step.type === 'video' ? 'video-generation' : 'script-generation'),
+                    aspectRatio: step.aspectRatio || '1:1',
+                    duration: step.duration || '5',
+                    isPipelineNode: true,
+                    pipelineId: pipelineMsgId
+                  }
+                };
+              });
+              
+              setHistory(prev => {
+                const stepIds = new Set(stepsWithEnabled.map((s: any) => s.id));
+                const cleaned = prev.filter(item => !stepIds.has(item.id));
+                return [...canvasNodes, ...cleaned];
+              });
+            }
 
             // 插入初始卡片到聊天历史中
             setMessages(prev => [...prev, {
@@ -4074,7 +4468,7 @@ export const Codex: React.FC<CodexProps> = ({
               agentName,
               agentIcon,
               type: 'pipeline',
-              content: responseContent,
+              content: `🎨 **意图作战沙盘已自动部署！**\n\n执行计划说明：\n${intentPlan.rationale}\n\n您可以在画布上直观查看、编辑每个节点的详细描述与画幅/时长参数。满意后，点击右侧或下方按钮即可正式启动多模态渲染流程。`,
               pipelinePlan: updatedPlan,
               timestamp: Date.now()
             }]);
@@ -4279,6 +4673,8 @@ export const Codex: React.FC<CodexProps> = ({
                       setEditingStep={setEditingStep}
                       onRetryStep={handleRetryPipelineStep}
                       setHistory={setHistory}
+                      setTuningPipelineMsgId={setTuningPipelineMsgId}
+                      onConvertToPipeline={aiSkill === 'general' ? handleConvertTextToPipeline : undefined}
                     />
                   </React.Fragment>
                 );
@@ -5123,6 +5519,72 @@ export const Codex: React.FC<CodexProps> = ({
       {/* 清空确认弹窗 */}
       {typeof document !== 'undefined' && document.body && createPortal(
         <AnimatePresence>
+          {tuningPipelineMsgId && messages.find(m => m.id === tuningPipelineMsgId)?.pipelinePlan && (
+            <PipelineTuningModal
+              initialPlan={messages.find(m => m.id === tuningPipelineMsgId)!.pipelinePlan!}
+              onClose={() => setTuningPipelineMsgId(null)}
+              onSave={(updatedPlan) => {
+                const enabledSteps = updatedPlan.steps.filter((s: any) => s.enabled !== false);
+                if (enabledSteps.length === 0) {
+                  alert('请至少保留一个需要执行的步骤！');
+                  return;
+                }
+                
+                // Instantiate nodes on the canvas
+                const canvasNodes = enabledSteps.map((step: any, idx: number) => {
+                  const startX = 150;
+                  const spacing = 420;
+                  const nodeX = startX + idx * spacing;
+                  const nodeY = 180;
+                  const parentId = idx > 0 ? enabledSteps[idx - 1].id : undefined;
+                  
+                  return {
+                    id: step.id,
+                    type: step.type === 'script' ? 'gen_script' : step.type,
+                    status: 'pipeline_pending',
+                    timestamp: Date.now() + idx, // ensure sequence
+                    parentId, // link them sequentially!
+                    position: { x: nodeX, y: nodeY },
+                    canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
+                    config: {
+                      title: step.label,
+                      prompt: step.prompt,
+                      revisedPrompt: step.prompt,
+                      skillId: step.skillId || (step.type === 'image' ? 'image-generation' : step.type === 'video' ? 'video-generation' : 'script-generation'),
+                      aspectRatio: step.aspectRatio || '1:1',
+                      duration: step.duration || '5',
+                      isPipelineNode: true,
+                      pipelineId: tuningPipelineMsgId
+                    }
+                  };
+                });
+                
+                if (setHistory) {
+                  const stepIds = new Set(enabledSteps.map((s: any) => s.id));
+                  setHistory((prev: any[]) => {
+                    const cleaned = prev.filter(item => !stepIds.has(item.id));
+                    return [...canvasNodes, ...cleaned];
+                  });
+                }
+                
+                setMessages(prev => prev.map(m => {
+                  if (m.id === tuningPipelineMsgId) {
+                    return {
+                      ...m,
+                      pipelinePlan: {
+                        ...updatedPlan,
+                        generatedOnCanvas: true
+                      },
+                      content: `🎨 **意图流水线已成功添加至画布！**\n您可以在画布上直观查看、编辑每个节点的详细描述与画幅/时长参数。满意后，点击画布右侧或下方按钮即可正式启动多模态渲染流程。`
+                    };
+                  }
+                  return m;
+                }));
+                
+                setTuningPipelineMsgId(null);
+              }}
+            />
+          )}
           {showClearConfirm && (
             <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
               <motion.div 

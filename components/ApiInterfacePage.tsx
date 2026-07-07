@@ -510,6 +510,43 @@ export const ApiInterfacePage: React.FC<ApiInterfacePageProps> = ({ user }) => {
               />
             </div>
 
+            {/* Display Name & Model Type Input */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400">显示名称 (DISPLAY NAME)</label>
+                <input 
+                  type="text"
+                  disabled={!isAdmin}
+                  placeholder={placeholderModel}
+                  value={section.displayName || ''}
+                  onChange={e => {
+                    const updated = { ...globalConfig };
+                    updated[type] = { ...section, displayName: e.target.value };
+                    setGlobalConfig(updated);
+                  }}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 border border-gray-100 rounded-xl outline-none transition-all disabled:opacity-70 font-medium"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400">模型类型 (MODEL TYPE)</label>
+                <select
+                  disabled={!isAdmin}
+                  value={section.modelType || (type === 'script' || type === 'claudeSonnet' ? 'text' : (type === 'image' || type === 'gptImage' ? 'image' : 'video'))}
+                  onChange={e => {
+                    const updated = { ...globalConfig };
+                    updated[type] = { ...section, modelType: e.target.value as 'text' | 'image' | 'video' };
+                    setGlobalConfig(updated);
+                  }}
+                  className="w-full text-xs py-2 px-3 bg-gray-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 border border-gray-100 rounded-xl outline-none transition-all disabled:opacity-70 font-medium cursor-pointer"
+                >
+                  <option value="text">文本 (Text)</option>
+                  <option value="image">图片 (Image)</option>
+                  <option value="video">视频 (Video)</option>
+                </select>
+              </div>
+            </div>
+
             {/* API Endpoint Input */}
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400">接口基础路径 (API ENDPOINT)</label>

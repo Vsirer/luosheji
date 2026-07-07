@@ -38,7 +38,7 @@ interface Line {
   showNumber?: boolean;
 }
 
-type EditorMode = 'character' | 'line';
+type EditorMode = 'hand' | 'character' | 'line';
 
 interface PointAndShootEditorProps {
   isOpen: boolean;
@@ -81,6 +81,9 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
   const [activeColor, setActiveColor] = useState('#ff0000');
   const [lineThickness, setLineThickness] = useState(3);
   const [defaultShowNumber, setDefaultShowNumber] = useState(true);
+  const [isDraggingLine, setIsDraggingLine] = useState(false);
+  const [draggingLinePointIdx, setDraggingLinePointIdx] = useState<number | null>(null);
+  const lastMousePos = useRef<Point>({ x: 0, y: 0 });
   
   const colors = [
     { name: '红色', value: '#ff0000' },
@@ -439,6 +442,27 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
         ctx.lineTo(line.points[i].x, line.points[i].y);
       }
       ctx.stroke();
+
+      // Draw end-points control handles
+      ctx.setLineDash([]);
+      
+      // Start point handle
+      ctx.beginPath();
+      ctx.arc(line.points[0].x, line.points[0].y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff3b30';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+
+      // End point handle
+      ctx.beginPath();
+      ctx.arc(line.points[line.points.length - 1].x, line.points[line.points.length - 1].y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff3b30';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
     }
     ctx.restore();
 
@@ -494,7 +518,93 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    if (mode === 'character') {
+    // Track last mouse position for dragging delta
+    lastMousePos.current = { x, y };
+
+    if (mode === 'hand') {
+      // 1. Check if clicking on an existing person
+      let foundPersonId: string | null = null;
+      for (let i = persons.length - 1; i >= 0; i--) {
+        const p = persons[i];
+        const w = 40 * p.scale;
+        const h = 80 * p.scale;
+        if (x >= p.x - w * 0.6 && x <= p.x + w * 0.6 && y >= p.y - h && y <= p.y + h * 0.1) {
+          foundPersonId = p.id;
+          break;
+        }
+      }
+
+      if (foundPersonId) {
+        setSelectedId(foundPersonId);
+        setSelectedLineId(null);
+        setIsDragging(true);
+        const p = persons.find(p => p.id === foundPersonId)!;
+        setDragOffset({ x: x - p.x, y: y - p.y });
+        return;
+      }
+
+      // 2. Check if clicking on the control points of the SELECTED line (if any)
+      if (selectedLineId) {
+        const selLine = lines.find(l => l.id === selectedLineId);
+        if (selLine && selLine.points.length > 0) {
+          const startPt = selLine.points[0];
+          const endPt = selLine.points[selLine.points.length - 1];
+          const distStart = Math.hypot(startPt.x - x, startPt.y - y);
+          const distEnd = Math.hypot(endPt.x - x, endPt.y - y);
+
+          if (distStart < 15) {
+            setIsDraggingLine(true);
+            setDraggingLinePointIdx(0);
+            setSelectedId(null);
+            return;
+          } else if (distEnd < 15) {
+            setIsDraggingLine(true);
+            setDraggingLinePointIdx(selLine.points.length - 1);
+            setSelectedId(null);
+            return;
+          }
+        }
+      }
+
+      // 3. Check if clicking on an existing line generally
+      let foundLineId: string | null = null;
+      let clickedPointIdx: number | null = null;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const l = lines[i];
+        // Check endpoints first
+        const startPt = l.points[0];
+        const endPt = l.points[l.points.length - 1];
+        if (Math.hypot(startPt.x - x, startPt.y - y) < 15) {
+          foundLineId = l.id;
+          clickedPointIdx = 0;
+          break;
+        }
+        if (Math.hypot(endPt.x - x, endPt.y - y) < 15) {
+          foundLineId = l.id;
+          clickedPointIdx = l.points.length - 1;
+          break;
+        }
+
+        // Check closeness to any point on the line
+        const isNear = l.points.some(p => Math.sqrt((p.x - x)**2 + (p.y - y)**2) < 12);
+        if (isNear) {
+          foundLineId = l.id;
+          clickedPointIdx = -1; // drag entire line
+          break;
+        }
+      }
+
+      if (foundLineId) {
+        setSelectedLineId(foundLineId);
+        setSelectedId(null);
+        setIsDraggingLine(true);
+        setDraggingLinePointIdx(clickedPointIdx);
+      } else {
+        // Clicked empty space: deselect
+        setSelectedId(null);
+        setSelectedLineId(null);
+      }
+    } else if (mode === 'character') {
       // Check if clicking on an existing person
       let foundId: string | null = null;
       for (let i = persons.length - 1; i >= 0; i--) {
@@ -570,14 +680,46 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
           ? { ...p, x: x - dragOffset.x, y: y - dragOffset.y } 
           : p
       ));
+    } else if (isDraggingLine && selectedLineId) {
+      const dx = x - lastMousePos.current.x;
+      const dy = y - lastMousePos.current.y;
+      
+      setLines(prev => prev.map(l => {
+        if (l.id === selectedLineId) {
+          if (draggingLinePointIdx === null || draggingLinePointIdx === -1) {
+            // Drag the entire line
+            return {
+              ...l,
+              points: l.points.map(p => ({ x: p.x + dx, y: p.y + dy }))
+            };
+          } else {
+            // Drag only the specific endpoint
+            return {
+              ...l,
+              points: l.points.map((p, idx) => 
+                idx === draggingLinePointIdx 
+                  ? { x, y } 
+                  : p
+              )
+            };
+          }
+        }
+        return l;
+      }));
     } else if (isDrawingLine) {
       setCurrentLine(prev => [...prev, { x, y }]);
     }
+
+    lastMousePos.current = { x, y };
   };
 
   const handleMouseUp = () => {
     if (isDragging) {
       setIsDragging(false);
+      saveToHistory(persons, lines);
+    } else if (isDraggingLine) {
+      setIsDraggingLine(false);
+      setDraggingLinePointIdx(null);
       saveToHistory(persons, lines);
     } else if (isDrawingLine) {
       setIsDrawingLine(false);
@@ -839,7 +981,7 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
   const selectedLine = lines.find(l => l.id === selectedLineId);
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4">
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -889,7 +1031,27 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
               {/* Mode Selection */}
               <div className="flex flex-col space-y-2 w-full items-center">
                 <button
-                  onClick={() => setMode('character')}
+                  onClick={() => {
+                    setMode('hand');
+                    setSelectedId(null);
+                    setSelectedLineId(null);
+                  }}
+                  className={cn(
+                    "p-2.5 rounded-xl transition-all border",
+                    mode === 'hand' 
+                      ? "bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20" 
+                      : "bg-white/5 border-transparent text-slate-500 hover:text-white hover:bg-white/10"
+                  )}
+                  title="选择与拖动 (Hand Tool)"
+                >
+                  <Hand className="w-5 h-5 shrink-0" />
+                </button>
+                <button
+                  onClick={() => {
+                    setMode('character');
+                    setSelectedId(null);
+                    setSelectedLineId(null);
+                  }}
                   className={cn(
                     "p-2.5 rounded-xl transition-all border",
                     mode === 'character' 
@@ -901,7 +1063,11 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
                   <User className="w-5 h-5 shrink-0" />
                 </button>
                 <button
-                  onClick={() => setMode('line')}
+                  onClick={() => {
+                    setMode('line');
+                    setSelectedId(null);
+                    setSelectedLineId(null);
+                  }}
                   className={cn(
                     "p-2.5 rounded-xl transition-all border",
                     mode === 'line' 
@@ -1003,7 +1169,11 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/60 backdrop-blur-md rounded-full border border-white/10 flex items-center space-x-2 pointer-events-none">
                         <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                         <span className="text-[10px] font-black text-white uppercase tracking-wider">
-                          {mode === 'character' ? '点击放置并拖动人物' : '在画布上按住并滑动绘制线条'}
+                          {mode === 'hand' 
+                            ? '拖动小人或线条（可选中后调节端点）' 
+                            : mode === 'character' 
+                              ? '点击放置并拖动人物' 
+                              : '在画布上按住并滑动绘制线条'}
                         </span>
                     </div>
                 </div>
@@ -1016,7 +1186,7 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
               <div className="w-80 h-full flex flex-col overflow-y-auto">
                 <div className="p-6 space-y-8 flex-1 flex flex-col justify-between">
                   <div className="space-y-8">
-                    {mode === 'character' ? (
+                    {mode === 'character' || (mode === 'hand' && selectedId) ? (
                       <>
                         <div className="flex items-center justify-between">
                           <h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center space-x-2">
@@ -1213,7 +1383,7 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
                           </div>
                         </div>
                       </>
-                    ) : (
+                    ) : mode === 'line' || (mode === 'hand' && selectedLineId) ? (
                       <>
                         <div className="flex items-center justify-between">
                           <h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center space-x-2">
@@ -1278,13 +1448,44 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
                           </div>
                         </div>
                       </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center space-x-2">
+                            <Hand className="w-4 h-4 text-red-500 mr-1" />
+                            <span>选择与调节 (SELECT)</span>
+                          </h3>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div className="p-4 bg-red-500/5 border border-red-500/25 rounded-2xl flex flex-col space-y-3 animate-fade-in">
+                            <div className="flex items-center space-x-2 text-red-400">
+                              <Hand className="w-4 h-4 shrink-0" />
+                              <span className="text-xs font-black">选择与位置调整模式</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                              在该模式下，您可以直接对画布中的元素进行位置调整：
+                            </p>
+                            <ul className="text-[10px] text-slate-500 space-y-2 pl-4 list-disc font-medium">
+                              <li>按住并拖拽 <strong className="text-slate-300">小人</strong> 改变其位置。</li>
+                              <li>按住并拖拽 <strong className="text-slate-300">整条线条</strong> 整体平移。</li>
+                              <li>点击选中一条线后，拖拽其两端的 <strong className="text-red-400">红色圆圈</strong> 即可调节两端坐标。</li>
+                            </ul>
+                          </div>
+
+                          <div className="p-3.5 bg-zinc-900/40 border border-white/5 text-slate-500 rounded-2xl text-[10px] leading-relaxed flex items-start space-x-2.5">
+                            <Info className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+                            <span>提示：在画布中点击对应的元素，可在右侧激活高级调节面板（如缩放、自转、姿势、是否标记等）。</span>
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
 
                   <div className="pt-8 border-t border-white/5">
                     <button 
                       onClick={deleteSelected}
-                      disabled={(mode === 'character' && !selectedId) || (mode === 'line' && !selectedLineId)}
+                      disabled={!selectedId && !selectedLineId}
                       className={cn(
                         "w-full flex items-center justify-center space-x-2 p-4 bg-red-500/5 hover:bg-red-500/10 text-red-500 rounded-2xl transition-all border border-red-500/10 group disabled:opacity-20 disabled:pointer-events-none"
                       )}

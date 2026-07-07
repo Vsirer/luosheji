@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   ImageIcon,
   Download,
@@ -31,6 +32,8 @@ import {
   Quote,
   ClipboardList,
   PenTool,
+  Code,
+  Wand2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { HistoryItem, SmartImageConfig, SmartVideoConfig } from "../types";
@@ -44,6 +47,9 @@ import {
 } from "./workflow-utils";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { WebSandbox } from "./os/WebSandbox";
+import { GenerativeUI } from "./os/GenerativeUI";
+import { PLUGINS } from "../plugin";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -53,6 +59,7 @@ interface HistoryCardProps {
   item: HistoryItem;
   onDragStart: () => void;
   onDragEnd: (offset: { x: number; y: number }) => void;
+  onDragMove?: (offset: { x: number; y: number }) => void;
   onRemix: (item: HistoryItem) => void;
   onRegenerate: (item: HistoryItem) => void;
   onDownload: (item: HistoryItem) => void;
@@ -101,11 +108,33 @@ interface HistoryCardProps {
   onCardContextMenu?: (e: React.MouseEvent, item: HistoryItem) => void;
 }
 
+const extractGenerativeUiCode = (text: string): string | null => {
+  if (!text) return null;
+  const marker = "Please use the following code as reference:";
+  const index = text.indexOf(marker);
+  if (index !== -1) {
+    return text.substring(index + marker.length).trim();
+  }
+  // Try fallback in case of direct code or markdown wrappers
+  if (text.includes("```jsx") || text.includes("```tsx") || text.includes("```javascript") || text.includes("```js")) {
+    const match = text.match(/```(?:jsx|tsx|javascript|js)?([\s\S]*?)```/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  // If it doesn't contain [Generative UI Plugin] but looks like javascript/react code
+  if (text.includes("useState") && text.includes("React")) {
+    return text;
+  }
+  return null;
+};
+
 export const HistoryCard = React.memo(
   ({
     item,
     onDragStart,
     onDragEnd,
+    onDragMove,
     onRemix,
     onRegenerate,
     onDownload,
@@ -147,11 +176,10 @@ export const HistoryCard = React.memo(
   }: HistoryCardProps) => {
     const [naturalAspectRatio, setNaturalAspectRatio] = useState<number | null>(item.naturalAspectRatio || null);
     const [isDraggingThisCard, setIsDraggingThisCard] = useState(false);
-    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
     const [localPos, setLocalPos] = useState({ x: item.position?.x || 0, y: item.position?.y || 0 });
     const [localText, setLocalText] = useState(item.revisedPrompt || "");
 
-    const isInlineConsoleActive = isSelected && (
+    const isInlineConsoleActive = isSelected && !item.config?.isPipelineNode && (
       (item.status === "draft_new" && (item.type === "image" || item.type === "video")) ||
       (item.type === "gen_script" && (!item.revisedPrompt || item.revisedPrompt.trim() === ""))
     );
@@ -159,7 +187,7 @@ export const HistoryCard = React.memo(
     useEffect(() => {
       setLocalText(item.revisedPrompt || "");
     }, [item.revisedPrompt]);
-    const hasAssetResult = item.status === "success" || !!item.imageUrl || !!item.videoUrl || item.type === "gen_script" || item.type === "audio";
+    const hasAssetResult = item.status === "success" || !!item.imageUrl || !!item.videoUrl || item.type === "gen_script" || item.type === "audio" || item.type === "code" || item.type === "ui";
     const hasActiveParent = safeParseParentIds(item.parentId).length > 0;
 
     useEffect(() => {
@@ -172,11 +200,12 @@ export const HistoryCard = React.memo(
     const lastParentPos = useRef({ x: item.position?.x || 0, y: item.position?.y || 0 });
 
     useEffect(() => {
+      if (isDraggingThisCard) return;
       if (item.position?.x !== lastParentPos.current.x || item.position?.y !== lastParentPos.current.y) {
         lastParentPos.current = { x: item.position?.x || 0, y: item.position?.y || 0 };
         setLocalPos({ x: item.position?.x || 0, y: item.position?.y || 0 });
       }
-    }, [item.position?.x, item.position?.y]);
+    }, [item.position?.x, item.position?.y, isDraggingThisCard]);
 
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
       if (isDragDisabled) return;
@@ -195,10 +224,8 @@ export const HistoryCard = React.memo(
       }
 
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
       setIsDraggingThisCard(true);
-      setDragOffset({ x: 0, y: 0 });
       dragStartPos.current = {
         pointerX: e.clientX,
         pointerY: e.clientY,
@@ -209,37 +236,61 @@ export const HistoryCard = React.memo(
       onDragStart();
     };
 
-    const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    useEffect(() => {
       if (!isDraggingThisCard) return;
-      e.stopPropagation();
 
-      const dx = e.clientX - dragStartPos.current.pointerX;
-      const dy = e.clientY - dragStartPos.current.pointerY;
+      // Smooth cursor feedback across iframe boundaries and viewport
+      const originalBodyCursor = document.body.style.cursor;
+      const originalUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
 
-      const localDx = dx / canvasScale;
-      const localDy = dy / canvasScale;
+      const handleGlobalPointerMove = (e: PointerEvent) => {
+        const dx = e.clientX - dragStartPos.current.pointerX;
+        const dy = e.clientY - dragStartPos.current.pointerY;
 
-      setLocalPos({
-        x: dragStartPos.current.cardX + localDx,
-        y: dragStartPos.current.cardY + localDy,
-      });
-      setDragOffset({ x: localDx, y: localDy });
-    };
+        const localDx = dx / canvasScale;
+        const localDy = dy / canvasScale;
 
-    const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isDraggingThisCard) return;
-      e.stopPropagation();
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        const absoluteX = dragStartPos.current.cardX + localDx;
+        const absoluteY = dragStartPos.current.cardY + localDy;
 
-      setIsDraggingThisCard(false);
+        setLocalPos({
+          x: absoluteX,
+          y: absoluteY,
+        });
 
-      onDragEnd({
-        x: dragOffset.x * canvasScale,
-        y: dragOffset.y * canvasScale,
-      });
+        if (onDragMove) {
+          onDragMove({ x: absoluteX, y: absoluteY });
+        }
+      };
 
-      setDragOffset({ x: 0, y: 0 });
-    };
+      const handleGlobalPointerUp = (e: PointerEvent) => {
+        setIsDraggingThisCard(false);
+
+        const dx = e.clientX - dragStartPos.current.pointerX;
+        const dy = e.clientY - dragStartPos.current.pointerY;
+        const localDx = dx / canvasScale;
+        const localDy = dy / canvasScale;
+
+        const absoluteX = dragStartPos.current.cardX + localDx;
+        const absoluteY = dragStartPos.current.cardY + localDy;
+
+        onDragEnd({
+          x: absoluteX,
+          y: absoluteY,
+        });
+      };
+
+      window.addEventListener("pointermove", handleGlobalPointerMove);
+      window.addEventListener("pointerup", handleGlobalPointerUp);
+      return () => {
+        document.body.style.cursor = originalBodyCursor;
+        document.body.style.userSelect = originalUserSelect;
+        window.removeEventListener("pointermove", handleGlobalPointerMove);
+        window.removeEventListener("pointerup", handleGlobalPointerUp);
+      };
+    }, [isDraggingThisCard, canvasScale, onDragEnd, onDragMove]);
 
     const cls = getHistoryItemClassification(item);
     const isDissectedScriptResult = Boolean(
@@ -366,6 +417,10 @@ export const HistoryCard = React.memo(
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
+
+    const [pluginMode, setPluginMode] = useState<"info" | "run" | "code">("info");
+    const [sandboxKey, setSandboxKey] = useState(0);
+    const [showFullscreenSandbox, setShowFullscreenSandbox] = useState(false);
 
     const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLAudioElement>) => {
       setDuration(e.currentTarget.duration);
@@ -582,17 +637,146 @@ export const HistoryCard = React.memo(
     if ((item as any).status === "pipeline_pending" || (item as any).status === "pending" || (item as any).status === "running" || (item.config as any)?.isPipelineNode && ((item as any).status === "error" || (item as any).status === "failed")) {
       const isRunning = (item as any).status === "running";
       const isFailed = (item as any).status === "error" || (item as any).status === "failed";
+      const isPending = (item as any).status === "pipeline_pending" || (item as any).status === "pending";
       const nodeType = item.type; // 'image' | 'video' | 'gen_script' | 'audio'
       const title = item.config?.title || "意图执行节点";
       const prompt = item.config?.prompt || "";
       const aspectRatio = item.config?.aspectRatio || "1:1";
       const duration = item.config?.duration || "5";
 
+      if (isPending) {
+        return (
+          <motion.div
+            onPointerDown={handlePointerDown}
+            initial={false}
+            animate={{
+              x: localPos.x,
+              y: localPos.y,
+              opacity: 1,
+              scale: isDraggingThisCard ? 1.02 : 1,
+            }}
+            whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 100 }}
+            className={cn(
+              "absolute w-[360px] h-[340px] group bg-zinc-900/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border-2 border-dashed will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none flex flex-col justify-between",
+              nodeType === "video" 
+                ? "border-purple-500/60 hover:border-purple-400 hover:bg-zinc-900/100" 
+                : nodeType === "image" 
+                  ? "border-indigo-500/60 hover:border-indigo-400 hover:bg-zinc-900/100" 
+                  : "border-teal-500/60 hover:border-teal-400 hover:bg-zinc-900/100",
+              isMultiSelected || isSelected
+                ? "border-rose-500 ring-4 ring-rose-500/20 shadow-[0_0_20px_rgba(244,63,94,0.3)]"
+                : ""
+            )}
+            style={{ cursor: isDragDisabled ? "default" : "grab" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSelect) onSelect(item.id);
+            }}
+            transition={isDraggingThisCard ? { type: "tween", duration: 0 } : {
+              type: "spring",
+              stiffness: 400,
+              damping: 30,
+              mass: 1,
+              opacity: { duration: 0.2 },
+            }}
+          >
+            {/* Connection Ports */}
+            {layoutMode !== "bento" && layoutMode !== "semi_auto" && (
+              <div className="absolute left-0 top-1/2 -translate-x-[15px] -translate-y-1/2 z-[50] flex items-center justify-center pointer-events-none">
+                <div className="relative flex items-center justify-center w-8 h-8 rounded-full border-2 bg-zinc-950 border-indigo-500/40">
+                  <div className="w-2 h-2 rounded-full bg-indigo-500" />
+                </div>
+              </div>
+            )}
+            {layoutMode !== "bento" && layoutMode !== "semi_auto" && (
+              <div className="absolute right-0 top-1/2 translate-x-[15px] -translate-y-1/2 z-[50] flex items-center justify-center pointer-events-none">
+                <div className="relative flex items-center justify-center w-8 h-8 rounded-full border-2 bg-zinc-950 border-indigo-500/40">
+                  <div className="w-2 h-2 rounded-full bg-indigo-500" />
+                </div>
+              </div>
+            )}
+
+            {/* Placeholder Card Main Body */}
+            <div className="flex flex-col h-full space-y-3 justify-between">
+              {/* Header: Badge & Delete Button */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className={cn(
+                    "w-2 h-2 rounded-full",
+                    nodeType === "video" 
+                      ? "bg-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
+                      : nodeType === "image" 
+                        ? "bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.8)]" 
+                        : "bg-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.8)]"
+                  )} />
+                  <span className={cn(
+                    "text-[11px] font-bold uppercase tracking-widest font-mono",
+                    nodeType === "video"
+                      ? "text-purple-300"
+                      : nodeType === "image"
+                        ? "text-indigo-300"
+                        : "text-teal-300"
+                  )}>
+                    {nodeType === "video" ? "🎬 视频合成占位" : nodeType === "image" ? "🎨 原画生图占位" : "🧠 策划脚本占位"}
+                  </span>
+                </div>
+                
+                {!isRunning && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(item.id);
+                    }}
+                    className="p-1 text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 rounded-full transition-all cursor-pointer"
+                    title="删除占位节点"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Dotted Center Illustration for blueprint slot */}
+              <div className="flex-1 flex flex-col items-center justify-center space-y-3 py-2">
+                <div className={cn(
+                  "w-14 h-14 rounded-2xl border flex items-center justify-center transition-transform duration-300 group-hover:scale-105",
+                  nodeType === "video" 
+                    ? "border-purple-500/50 bg-purple-500/10 text-purple-300" 
+                    : nodeType === "image" 
+                      ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300" 
+                      : "border-teal-500/50 bg-teal-500/10 text-teal-300"
+                )}>
+                  {nodeType === "video" && <Film className="w-7 h-7" />}
+                  {nodeType === "image" && <ImageIcon className="w-7 h-7" />}
+                  {nodeType !== "video" && nodeType !== "image" && <FileText className="w-7 h-7" />}
+                </div>
+
+                <div className="text-center flex flex-col space-y-1">
+                  <span className="text-[14px] font-bold text-zinc-100 tracking-wide">{title}</span>
+                  <span className="text-[11px] text-zinc-300 font-medium px-2">
+                    {nodeType === "video" ? "⏳ 等待生图原画就绪后开启合成..." : nodeType === "image" ? "⏳ 等待分镜脚本确立后开启渲染..." : "⏳ 等待品牌创意策略确立中..."}
+                  </span>
+                </div>
+              </div>
+
+              {/* Collapsed view of prompt */}
+              <div className="bg-zinc-950/80 border border-zinc-800 rounded-xl p-3 max-h-[80px] overflow-hidden flex flex-col space-y-1">
+                <span className="text-[9px] font-bold text-zinc-400 font-mono uppercase tracking-wider">设计蓝图 (Prompt Blueprint)</span>
+                <p className="text-[11px] text-zinc-200 leading-relaxed font-medium line-clamp-2">
+                  "{prompt || "无描述词蓝图"}"
+                </p>
+              </div>
+
+              <div className="text-center text-[10px] text-zinc-300 font-bold py-1.5 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
+                ⚔️ 已部署至作战沙盘，等待系统正式启动...
+              </div>
+            </div>
+          </motion.div>
+        );
+      }
+
       return (
         <motion.div
           onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
           initial={false}
           animate={{
             x: localPos.x,
@@ -811,27 +995,40 @@ export const HistoryCard = React.memo(
     }
 
     if (item.status === "draft_new") {
-      const OrigamiCrane = () => (
-        <svg viewBox="0 0 100 100" className="w-20 h-20 drop-shadow-[0_4px_10px_rgba(0,0,0,0.02)] opacity-85 transition-transform duration-300 group-hover:scale-105">
-          {/* Left neck/head */}
-          <polygon points="50,60 25,45 35,55" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="0.25" />
-          <polygon points="25,45 20,50 28,48" fill="#94a3b8" stroke="#64748b" strokeWidth="0.25" />
-          {/* Right tail */}
-          <polygon points="50,60 75,45 65,55" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="0.25" />
-          {/* Back wing */}
-          <polygon points="50,60 45,25 52,48" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="0.25" />
-          {/* Front main wing/body */}
-          <polygon points="50,60 38,50 50,20" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="0.25" />
-          <polygon points="50,60 52,50 50,20" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="0.25" />
-          <polygon points="50,60 55,50 68,48" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="0.25" />
-        </svg>
-      );
+      // Choose icon and label based on item type
+      let cardIcon = <Sparkles className="w-5 h-5 text-indigo-400" />;
+      let cardTitle = "文本意图";
+      let cardDesc = "一键唤醒小逻生成文本";
+      let cardTag = "Text Node";
+      let tagBg = "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
+      let centralDetail = "✍️ 键入创意指令，编译剧本文案";
+
+      if (item.type === "image") {
+        cardIcon = <ImageIcon className="w-5 h-5 text-teal-400" />;
+        cardTitle = "画面意图";
+        cardDesc = "一键唤醒小逻生图";
+        cardTag = "Image Node";
+        tagBg = "bg-teal-500/10 text-teal-400 border-teal-500/20";
+        centralDetail = "🎨 描述画面构图，绘制精美艺术";
+      } else if (item.type === "video") {
+        cardIcon = <Film className="w-5 h-5 text-purple-400" />;
+        cardTitle = "镜头意图";
+        cardDesc = "一键唤醒小逻生视频";
+        cardTag = "Video Node";
+        tagBg = "bg-purple-500/10 text-purple-400 border-purple-500/20";
+        centralDetail = "🎬 规划运镜构想，渲染震撼视频";
+      } else if (item.type === "code" || item.type === "ui") {
+        cardIcon = <Code className="w-5 h-5 text-blue-400" />;
+        cardTitle = "运行沙盒";
+        cardDesc = "智能编译动态 UI 组件";
+        cardTag = "Component Node";
+        tagBg = "bg-blue-500/10 text-blue-400 border-blue-500/20";
+        centralDetail = "⚡ 实时渲染高保真、交互式前端沙盒";
+      }
 
       return (
         <motion.div
           onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
           initial={false}
           animate={{
             x: localPos.x,
@@ -841,14 +1038,14 @@ export const HistoryCard = React.memo(
           }}
           whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 50 }}
           className={cn(
-            "absolute group bg-[#f3f4f6] border border-zinc-200 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.04)] history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden",
+            "absolute group bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden",
             layoutMode === "semi_auto"
               ? getSemiAutoBorderStyles(item)
-              : "hover:border-zinc-300 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]",
+              : "hover:border-zinc-700 hover:shadow-2xl hover:shadow-black/60",
             isMultiSelected || isSelected || dockedItemId === item.id
               ? layoutMode === "semi_auto"
                 ? getSemiAutoActiveStyles(item)
-                : "border-indigo-400 ring-4 ring-indigo-500/10 shadow-[0_8px_30px_rgba(99,102,241,0.12)]"
+                : "border-indigo-500/80 ring-4 ring-indigo-500/10 shadow-2xl shadow-indigo-500/10"
               : ""
           )}
           style={{ 
@@ -882,7 +1079,7 @@ export const HistoryCard = React.memo(
               style={{ top: `${spec.height / 2}px` }}
             >
               <div className={cn(
-                "relative flex items-center justify-center w-8 h-8 rounded-full border-2 bg-zinc-950 transition-all duration-300",
+                "relative flex items-center justify-center w-8 h-8 rounded-full border border-zinc-800 bg-zinc-950 transition-all duration-300",
                 dockedItemId === item.id
                   ? item.type === "video" 
                     ? "border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)] scale-110" 
@@ -922,7 +1119,7 @@ export const HistoryCard = React.memo(
               style={{ top: `${spec.height / 2}px` }}
             >
               <div className={cn(
-                "relative flex items-center justify-center w-8 h-8 rounded-full border-2 bg-zinc-950 transition-all duration-300",
+                "relative flex items-center justify-center w-8 h-8 rounded-full border border-zinc-800 bg-zinc-950 transition-all duration-300",
                 dockedItemId === item.id
                   ? item.type === "video"
                     ? "border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)] scale-110"
@@ -952,39 +1149,64 @@ export const HistoryCard = React.memo(
               )}
             </div>
           )}
+
           <div className="p-6 h-full flex flex-col justify-between select-none">
-            {/* Header section matching Figure 1 */}
+            {/* Header section */}
             <div className="flex items-center justify-between shrink-0">
-              {item.type === "gen_script" ? (
-                <div className="flex items-center space-x-1 text-zinc-400 font-bold text-xs">
-                  <span className="font-extrabold text-zinc-500 mr-0.5 text-sm tracking-wider">A三</span>
-                  <span className="text-zinc-500 font-semibold tracking-wide">Text</span>
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 bg-zinc-950/60 rounded-lg border border-zinc-800/40 flex items-center justify-center">
+                  {cardIcon}
                 </div>
-              ) : item.type === "video" ? (
-                <div className="flex items-center space-x-1.5 text-zinc-400 font-semibold text-xs">
-                  <Film className="w-3.5 h-3.5 text-zinc-400" />
-                  <span className="text-zinc-500 font-semibold tracking-wide">Video Gen</span>
+                <div className="flex flex-col">
+                  <span className="text-zinc-100 font-bold text-xs leading-tight tracking-wide">{cardTitle}</span>
+                  <span className="text-zinc-400 text-[10px] scale-90 origin-left mt-0.5">{cardDesc}</span>
                 </div>
-              ) : (
-                <div className="flex items-center space-x-1.5 text-zinc-400 font-semibold text-xs">
-                  <ImageIcon className="w-3.5 h-3.5 text-zinc-400" />
-                  <span className="text-zinc-500 font-semibold tracking-wide">Image Gen</span>
-                </div>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(item.id);
-                }}
-                className="p-1.5 hover:bg-zinc-200/60 text-zinc-400 hover:text-zinc-600 rounded-full transition-all cursor-pointer active:scale-95"
-                title="删除区域"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className={cn("text-[9px] px-2 py-0.5 rounded-full border font-mono font-medium tracking-wide shadow-sm scale-90", tagBg)}>
+                  {cardTag}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(item.id);
+                  }}
+                  className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 rounded-full transition-all cursor-pointer active:scale-95"
+                  title="删除占位卡片"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
-            {/* Central minimalist section (origami crane removed per user request) */}
-            <div className="flex-1 flex flex-col items-center justify-center py-4 text-center">
+            {/* Central High-Contrast Minimalist Guiding Section */}
+            <div className="flex-1 flex flex-col items-center justify-center py-4 text-center space-y-3">
+              <div className="p-4 bg-zinc-950/40 rounded-2xl border border-zinc-800/50 flex items-center justify-center">
+                {item.type === "gen_script" ? (
+                  <span className="text-3xl filter drop-shadow-md">✍️</span>
+                ) : item.type === "image" ? (
+                  <span className="text-3xl filter drop-shadow-md">🎨</span>
+                ) : (
+                  <span className="text-3xl filter drop-shadow-md">🎬</span>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p className="text-[12px] text-zinc-200 font-medium tracking-wide">
+                  {centralDetail}
+                </p>
+                <p className="text-[10px] text-zinc-400 scale-95">
+                  {isSelected ? "👉 请在下方控制面板直接输入生成指令" : "💡 点击卡片可唤醒小逻指令编译面板"}
+                </p>
+              </div>
+            </div>
+
+            {/* Card Footer Status */}
+            <div className="pt-2 border-t border-zinc-800/40 flex items-center justify-between text-[10px]">
+              <span className="text-zinc-400 flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span className="font-medium">等待激活意图</span>
+              </span>
+              <span className="text-zinc-500 font-mono text-[9px]">ID: {item.id.slice(0, 8)}</span>
             </div>
           </div>
         </motion.div>
@@ -995,8 +1217,6 @@ export const HistoryCard = React.memo(
       return (
         <motion.div
           onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
           initial={false}
           animate={{
             x: localPos.x,
@@ -1167,8 +1387,6 @@ export const HistoryCard = React.memo(
     return (
       <motion.div
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
         initial={false}
         animate={{
           x: localPos.x,
@@ -1361,7 +1579,6 @@ export const HistoryCard = React.memo(
                       {(item.type === "gen_script"
                         ? [
                             { key: "script", label: "剧本", icon: FileText, color: "text-amber-400 hover:bg-amber-500/10" },
-                            { key: "text_asset", label: "资产", icon: Layers, color: "text-emerald-400 hover:bg-emerald-500/10" },
                             { key: "shot_prompt", label: "分镜提示词", icon: Sparkles, color: "text-cyan-400 hover:bg-cyan-500/10" },
                           ]
                         : [
@@ -1404,8 +1621,8 @@ export const HistoryCard = React.memo(
           </div>
         )}
 
-        {(item.status === "loading" || item.status === "processing") &&
-        !(item.imageUrl || item.videoUrl || item.type === "gen_script") ? (
+        {(item.status === "loading" || item.status === "processing" || item.status === "running" || item.status === "pipeline_pending" || item.status === "pending") &&
+        !(item.imageUrl || item.videoUrl || item.type === "gen_script" || ((item.type === "code" || item.type === "ui") && (item as any).code)) ? (
           <div className="w-full h-full flex-1 flex flex-col items-center justify-center bg-zinc-900/60 backdrop-blur-sm space-y-4 relative overflow-hidden rounded-2xl">
             <button
               onClick={() => onRemove(item.id)}
@@ -1458,11 +1675,296 @@ export const HistoryCard = React.memo(
               )}
             </div>
           </div>
-        ) : item.type === "gen_script" ? (
+        ) : item.type === "gen_script" ? (() => {
+          const skillId = item.config?.skillId;
+          const plugin = PLUGINS.find((p) => p.id === skillId);
+          const isSystemModalPlugin = !!(
+            skillId && 
+            (skillId === "perspective-sim" || skillId === "point-and-shoot" || skillId === "camera-control")
+          );
+          
+          const isGenerativeUIPlugin = !!(
+            item.config?.isSkillNode && 
+            (
+              (item.revisedPrompt && item.revisedPrompt.includes("[Generative UI Plugin:")) ||
+              (plugin && plugin.instruction && plugin.instruction.includes("[Generative UI Plugin:")) ||
+              (skillId && (skillId.startsWith("custom_") || skillId === "贪吃蛇" || isSystemModalPlugin))
+            )
+          );
+
+          const pluginCode = extractGenerativeUiCode(item.revisedPrompt || (plugin?.instruction || ""));
+
+          if (isGenerativeUIPlugin) {
+            return (
+              <div className="relative aspect-[3/4] sm:aspect-square overflow-hidden bg-white cursor-pointer group/script rounded-2xl flex flex-col h-full border border-indigo-100 shadow-sm">
+                {/* Card header */}
+                <div className="px-4 py-3 bg-gradient-to-r from-indigo-50/50 to-purple-50/30 border-b border-indigo-50/60 flex items-center justify-between shrink-0">
+                  <div className="flex items-center space-x-2 overflow-hidden">
+                    <span className="text-sm shrink-0">{item.config?.icon || plugin?.icon || "🧩"}</span>
+                    <span className="text-[12px] font-bold text-slate-800 truncate">
+                      {item.config?.title || plugin?.name || "工作流插件"}
+                    </span>
+                  </div>
+                  
+                  {/* View options */}
+                  <div className="flex items-center space-x-1" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => setPluginMode("info")}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all",
+                        pluginMode === "info" ? "bg-indigo-100/80 text-indigo-700" : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                      )}
+                      title="插件信息"
+                    >
+                      信息
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isSystemModalPlugin) {
+                          onApplyMode?.(skillId, item);
+                        }
+                        setPluginMode("run");
+                        setSandboxKey(prev => prev + 1);
+                      }}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all",
+                        pluginMode === "run" ? "bg-indigo-100/80 text-indigo-700 font-bold" : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                      )}
+                      title="运行插件"
+                    >
+                      运行
+                    </button>
+                    <button
+                      onClick={() => setPluginMode("code")}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all",
+                        pluginMode === "code" ? "bg-indigo-100/80 text-indigo-700" : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                      )}
+                      title="查看代码"
+                    >
+                      代码
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card body content */}
+                <div className="flex-1 overflow-hidden relative bg-slate-50/40 p-4">
+                  {pluginMode === "info" && (
+                    <div className="w-full h-full flex flex-col justify-between items-center text-center p-2">
+                      <div className="my-auto flex flex-col items-center">
+                        <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-indigo-100/50 mb-3 animate-pulse">
+                          {item.config?.icon || plugin?.icon || "🧩"}
+                        </div>
+                        <h4 className="text-xs font-extrabold text-slate-800 tracking-wide mb-1">
+                          {item.config?.title || plugin?.name || "未知插件"}
+                        </h4>
+                        <p className="text-[10px] text-slate-500 max-w-[240px] leading-relaxed line-clamp-3">
+                          {plugin?.desc || "点击“直接运行”可以在画布中直接体验并交互此插件。"}
+                        </p>
+                      </div>
+
+                      <div className="w-full space-y-1.5 mt-auto shrink-0" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => {
+                            if (isSystemModalPlugin) {
+                              onApplyMode?.(skillId, item);
+                            }
+                            setPluginMode("run");
+                            setSandboxKey(prev => prev + 1);
+                          }}
+                          className="w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold rounded-xl text-[11px] transition-all shadow-[0_2px_8px_rgba(79,70,229,0.2)] hover:shadow-[0_4px_12px_rgba(79,70,229,0.3)] active:scale-95 flex items-center justify-center space-x-1"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>立即运行</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (isSystemModalPlugin) {
+                              onApplyMode?.(skillId, item);
+                              setPluginMode("run");
+                            } else {
+                              setShowFullscreenSandbox(true);
+                            }
+                          }}
+                          className="w-full py-1 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-[10px] border border-slate-200 transition-all active:scale-95 flex items-center justify-center space-x-1"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                          <span>全屏运行</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {pluginMode === "run" && (
+                    <div className="w-full h-full flex flex-col" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                      {pluginCode ? (
+                        <div className="flex-1 relative rounded-xl overflow-hidden border border-slate-100 shadow-inner bg-white h-full">
+                          <WebSandbox 
+                            key={sandboxKey} 
+                            code={pluginCode} 
+                            className="w-full h-full border-none" 
+                          />
+                        </div>
+                      ) : isSystemModalPlugin ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                          <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2">
+                            <Play className="w-5 h-5 text-indigo-600 animate-pulse fill-indigo-600" />
+                          </div>
+                          <p className="text-[11px] text-slate-700 font-bold mb-1">系统内置插件正在运行中</p>
+                          <p className="text-[9px] text-slate-400 max-w-[200px] leading-relaxed mb-3">
+                            由于此插件为平台级深度交互模块，已通过高精度悬浮弹窗安全载入。
+                          </p>
+                          <button
+                            onClick={() => onApplyMode?.(skillId, item)}
+                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition-all"
+                          >
+                            重新唤起弹窗
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                          <AlertCircle className="w-6 h-6 text-amber-500 mb-1" />
+                          <p className="text-[10px] text-slate-600 font-semibold">未检测到有效的可运行代码</p>
+                        </div>
+                      )}
+                      
+                      {/* Runner footer */}
+                      {!isSystemModalPlugin && (
+                        <div className="flex items-center justify-between pt-1 px-1 shrink-0">
+                          <button
+                            onClick={() => setSandboxKey(prev => prev + 1)}
+                            className="p-1 text-[9px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg flex items-center space-x-0.5 transition-all"
+                          >
+                            <RefreshCw className="w-2.5 h-2.5" />
+                            <span>重试</span>
+                          </button>
+                          <button
+                            onClick={() => setShowFullscreenSandbox(true)}
+                            className="p-1 text-[9px] font-bold text-slate-600 hover:bg-slate-100 rounded-lg flex items-center space-x-0.5 transition-all"
+                          >
+                            <Maximize2 className="w-2.5 h-2.5" />
+                            <span>全屏</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {pluginMode === "code" && (
+                    <div className="w-full h-full flex flex-col relative" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                      <div className="flex-1 overflow-hidden relative">
+                        <div className="absolute inset-0">
+                          <textarea
+                            value={localText}
+                            onChange={(e) => {
+                              const newText = e.target.value;
+                              setLocalText(newText);
+                              setHistory?.((prev) =>
+                                prev.map((h) =>
+                                  h.id === item.id ? { ...h, revisedPrompt: newText } : h
+                                )
+                              );
+                              syncToCloud?.({ ...item, revisedPrompt: newText });
+                            }}
+                            className="w-full h-full p-2 bg-white rounded-xl border border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-mono text-[9px] leading-relaxed text-slate-700 resize-none outline-none transition-all no-drag custom-scrollbar"
+                            placeholder="在此处直接输入或编辑代码..."
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end pt-1 shrink-0">
+                        <button
+                          onClick={() => setPluginMode("info")}
+                          className="px-2 py-0.5 text-[9px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition-all"
+                        >
+                          确定
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Fullscreen Modal Portal for Sandbox inside card structure */}
+                {showFullscreenSandbox && createPortal(
+                  <div className="fixed inset-0 z-[999999] flex flex-col bg-slate-900/90 backdrop-blur-sm p-4 sm:p-6" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                    <div className="w-full max-w-5xl mx-auto flex-1 flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+                      {/* Modal header */}
+                      <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <span className="text-xl">{item.config?.icon || plugin?.icon || "🧩"}</span>
+                          <div className="text-left">
+                            <h3 className="text-sm font-bold text-slate-800">
+                              {item.config?.title || plugin?.name || "工作流插件"}
+                            </h3>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {plugin?.desc || "正在运行此交互式插件组件"}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setSandboxKey(prev => prev + 1)}
+                            className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-indigo-600 transition-all flex items-center space-x-1"
+                            title="重载"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                            <span className="text-xs font-semibold pr-1">重置</span>
+                          </button>
+                          <button
+                            onClick={() => setShowFullscreenSandbox(false)}
+                            className="p-1.5 hover:bg-red-50 hover:text-red-600 text-slate-400 rounded-xl transition-all"
+                            title="退出全屏"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Modal Sandbox */}
+                      <div className="flex-1 bg-slate-100/50 p-4 relative">
+                        {pluginCode ? (
+                          <WebSandbox 
+                            key={`fs-${sandboxKey}`} 
+                            code={pluginCode} 
+                            className="w-full h-full border-none shadow-sm rounded-xl" 
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-center">
+                            <AlertCircle className="w-12 h-12 text-amber-500 mb-2" />
+                            <p className="text-sm font-bold text-slate-700">未检测到有效的可运行代码</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+              </div>
+            );
+          }
+
+          // Otherwise return standard custom script card
+          return (
             <div className="relative aspect-[3/4] sm:aspect-square overflow-hidden bg-white cursor-pointer group/script rounded-2xl">
-              <div className="w-full h-full p-6 flex flex-col bg-amber-50/20">
-                <div className="flex items-center space-x-2 text-amber-600 mb-3 shrink-0">
+              <div className={cn(
+                "w-full h-full p-6 flex flex-col",
+                item.config?.isSkillNode ? "bg-indigo-50/10 border-t-2 border-indigo-500 rounded-t-2xl" : "bg-amber-50/20"
+              )}>
+                <div className={cn(
+                  "flex items-center space-x-2 mb-3 shrink-0",
+                  item.config?.isSkillNode ? "text-indigo-600" : "text-amber-600"
+                )}>
                   {(() => {
+                    if (item.config?.isSkillNode) {
+                      return (
+                        <>
+                          <span className="text-sm shrink-0 mr-1">{item.config?.icon || "🧩"}</span>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 truncate max-w-[150px]">
+                            {item.config?.title || "工作流插件"}
+                          </span>
+                        </>
+                      );
+                    }
                     const cls = getHistoryItemClassification(item);
                     if (cls === "text_asset") {
                       return (
@@ -1529,7 +2031,8 @@ export const HistoryCard = React.memo(
                 </div>
               </div>
             </div>
-          ) : (
+          );
+        })() : (
           <div
             className={cn(
               "relative w-full h-[100%] flex-1 overflow-hidden cursor-pointer rounded-2xl",
@@ -1614,6 +2117,14 @@ export const HistoryCard = React.memo(
                   onError={() => setVideoError(true)}
                 />
               )
+            ) : item.type === "code" && (item as any).code ? (
+              <div className="w-full h-full bg-zinc-950 overflow-hidden flex flex-col no-drag p-2 rounded-2xl relative" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                <WebSandbox code={(item as any).code} />
+              </div>
+            ) : item.type === "ui" && (item as any).code ? (
+              <div className="w-full h-full bg-white overflow-hidden flex flex-col no-drag p-2 rounded-2xl relative" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                <GenerativeUI intent={(item as any).config?.title || ""} uiSchema={(item as any).code} />
+              </div>
             ) : (
               <div className="w-full h-full relative">
                 {imageError ? (
@@ -1821,24 +2332,6 @@ export const HistoryCard = React.memo(
                                     >
                                       <Clapperboard className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
                                       <span>极速剧本拆解</span>
-                                    </button>
-
-                                    <button
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        setShowDecomposeDropdown(false);
-                                        await onDirectDecomposeScript?.(item, "asset_prompt");
-                                      }}
-                                      disabled={isGenerating}
-                                      className={cn(
-                                        "w-full text-left px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center space-x-2",
-                                        isGenerating
-                                          ? "text-zinc-500 cursor-not-allowed opacity-50"
-                                          : "text-zinc-300 hover:text-violet-400 hover:bg-zinc-800/80"
-                                      )}
-                                    >
-                                      <Box className="w-3.5 h-3.5 text-violet-400" />
-                                      <span>资产提示词</span>
                                     </button>
 
                                     <button

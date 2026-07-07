@@ -175,7 +175,7 @@ const App: React.FC = () => {
         setConfig(prev => {
           const newConfig = { ...DEFAULT_CONFIG, ...prev };
           if (globalConfig && Object.keys(globalConfig).length > 0) {
-            ['script', 'image', 'video', 'videoVeoFast', 'videoSeedance', 'videoSeedanceMini', 'gptImage'].forEach(key => {
+            ['script', 'image', 'video', 'videoVeoFast', 'videoSeedance', 'videoSeedanceMini', 'gptImage', 'claudeSonnet'].forEach(key => {
               const moduleKey = key as keyof Config;
               if (globalConfig[key]) {
                  newConfig[moduleKey] = { ...newConfig[moduleKey], ...globalConfig[key] };
@@ -527,7 +527,7 @@ const App: React.FC = () => {
           if (globalConfig && Object.keys(globalConfig).length > 0) {
             setConfig(prev => {
               const newConfig = { ...prev };
-              ['script', 'image', 'video', 'videoVeoFast', 'videoSeedance', 'videoSeedanceMini', 'gptImage'].forEach(key => {
+              ['script', 'image', 'video', 'videoVeoFast', 'videoSeedance', 'videoSeedanceMini', 'gptImage', 'claudeSonnet'].forEach(key => {
                 const moduleKey = key as keyof Config;
                 if (globalConfig[key]) {
                    newConfig[moduleKey] = { ...newConfig[moduleKey], ...globalConfig[key] };

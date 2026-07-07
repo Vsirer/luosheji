@@ -24,19 +24,11 @@ export default defineConfig(({ mode }) => {
         minify: true,
         rollupOptions: {
           external: [
-            'three',
-            'three/examples/jsm/controls/OrbitControls',
-            'three/examples/jsm/controls/TransformControls',
-            'three/examples/jsm/objects/Reflector',
             'xlsx',
             'pdfjs-dist'
           ],
           output: {
             paths: {
-              'three': 'https://esm.sh/three@0.183.2',
-              'three/examples/jsm/controls/OrbitControls': 'https://esm.sh/three@0.183.2/examples/jsm/controls/OrbitControls.js',
-              'three/examples/jsm/controls/TransformControls': 'https://esm.sh/three@0.183.2/examples/jsm/controls/TransformControls.js',
-              'three/examples/jsm/objects/Reflector': 'https://esm.sh/three@0.183.2/examples/jsm/objects/Reflector.js',
               'xlsx': 'https://esm.sh/xlsx@0.18.5',
               'pdfjs-dist': 'https://esm.sh/pdfjs-dist@3.11.174'
             },
@@ -62,7 +54,8 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, './'),
-        }
+        },
+        dedupe: ['three']
       }
     };
 });

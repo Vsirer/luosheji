@@ -49,6 +49,7 @@ export const Layout: React.FC<LayoutProps> = ({
 }) => {
   const [dbStatus, setDbStatus] = useState<{ mode: string; mysqlConfigured: boolean } | null>(null);
   const [ossStatus, setOssStatus] = useState<{ success: boolean; message: string } | null>(null);
+  const [isPopupActive, setIsPopupActive] = useState(false);
   const isCollapsed = true;
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select');
@@ -132,6 +133,75 @@ export const Layout: React.FC<LayoutProps> = ({
       window.removeEventListener('sync-interaction-mode', handleSync);
       window.removeEventListener('sync-canvas-sidebar-open', handleSidebarSync);
       window.removeEventListener('sync-canvas-layout-mode', handleLayoutSync);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePopupChange = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail) {
+        setIsPopupActive(!!customEvent.detail.isFullscreen);
+      }
+    };
+    window.addEventListener('generative-ui-fullscreen-change', handlePopupChange);
+    return () => {
+      window.removeEventListener('generative-ui-fullscreen-change', handlePopupChange);
+    };
+  }, []);
+
+  const [hidePanels, setHidePanels] = useState(false);
+
+  useEffect(() => {
+    const checkFullscreenPopups = () => {
+      const fixedElements = document.querySelectorAll('.fixed.inset-0');
+      let found = false;
+      for (let i = 0; i < fixedElements.length; i++) {
+        const el = fixedElements[i] as HTMLElement;
+        const style = window.getComputedStyle(el);
+        const zIndex = style.zIndex;
+        const zNum = parseInt(zIndex, 10);
+        
+        // Exclude our own layout overlays and lower z-index utility popups
+        if (!isNaN(zNum) && zNum >= 50 && zIndex !== '9999') {
+          // Transparent click-away backdrops typically have no children and are fully transparent
+          if (el.children.length === 0) {
+            const bg = style.backgroundColor;
+            const isTransparent = bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)' || bg === 'rgba(255, 255, 255, 0)';
+            const hasBlur = style.backdropFilter !== 'none' || (style as any).webkitBackdropFilter !== 'none';
+            if (isTransparent && !hasBlur) {
+              continue;
+            }
+          }
+          
+          if (style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0) {
+            found = true;
+            break;
+          }
+        }
+      }
+      setHidePanels(found);
+    };
+
+    // Run initially
+    checkFullscreenPopups();
+
+    // Set up MutationObserver to instantly hide/show on DOM updates
+    const observer = new MutationObserver(() => {
+      checkFullscreenPopups();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    });
+
+    const interval = setInterval(checkFullscreenPopups, 300);
+
+    return () => {
+      observer.disconnect();
+      clearInterval(interval);
     };
   }, []);
 
@@ -245,7 +315,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className="h-screen flex bg-white text-slate-800">
-      {!isGuest && (
+      {!isGuest && !hidePanels && (
         <>
           {/* Top-Left Panel (Green Box Position): Points Display and Action Buttons */}
           <div 

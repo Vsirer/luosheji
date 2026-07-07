@@ -198,7 +198,8 @@ export const DEFAULT_CONFIG: Config = {
     path: '/v1beta/models/gemini-3.5-flash:generateContent',
     model: 'gemini-3.5-flash',
     apiKey: '',
-    protocolType: 'openai'
+    protocolType: 'openai',
+    modelType: 'text'
   },
   image: {
     provider: 'Third Party',
@@ -206,7 +207,8 @@ export const DEFAULT_CONFIG: Config = {
     path: '/v1beta/models/gemini-3.1-flash-image-preview',
     model: 'gemini-3.1-flash-image-preview',
     apiKey: '',
-    protocolType: 'openai'
+    protocolType: 'openai',
+    modelType: 'image'
   },
   video: {
     provider: 'Google',
@@ -214,6 +216,7 @@ export const DEFAULT_CONFIG: Config = {
     path: '/v1beta/models/veo-3.1-generate-preview:generateVideos',
     model: 'veo-3.1-generate-preview',
     apiKey: '',
+    modelType: 'video'
   },
   videoVeoFast: {
     provider: 'Google',
@@ -221,6 +224,7 @@ export const DEFAULT_CONFIG: Config = {
     path: '/v1beta/models/veo-3.1-fast-generate-preview:generateVideos',
     model: 'veo-3.1-fast-generate-preview',
     apiKey: '',
+    modelType: 'video'
   },
   videoSeedance: {
     provider: 'Seedance',
@@ -230,7 +234,8 @@ export const DEFAULT_CONFIG: Config = {
     apiKey: '',
     project: '',
     accessKeyId: '',
-    secretKey: ''
+    secretKey: '',
+    modelType: 'video'
   },
   videoSeedanceMini: {
     provider: 'Seedance',
@@ -240,7 +245,8 @@ export const DEFAULT_CONFIG: Config = {
     apiKey: '',
     project: '',
     accessKeyId: '',
-    secretKey: ''
+    secretKey: '',
+    modelType: 'video'
   },
   gptImage: {
     provider: 'Third Party',
@@ -248,7 +254,8 @@ export const DEFAULT_CONFIG: Config = {
     path: '',
     model: 'gemini-3-flash-preview',
     apiKey: '',
-    protocolType: 'openai'
+    protocolType: 'openai',
+    modelType: 'image'
   },
   claudeSonnet: {
     provider: 'Third Party',
@@ -256,7 +263,8 @@ export const DEFAULT_CONFIG: Config = {
     path: '',
     model: 'Claude-sonnet-5',
     apiKey: '',
-    protocolType: 'openai'
+    protocolType: 'openai',
+    modelType: 'text'
   }
 };
 

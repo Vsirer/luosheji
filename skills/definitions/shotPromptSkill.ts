@@ -33,7 +33,7 @@ export const shotPromptSkill: AiSkill = {
       choices: ["4段", "5段", "6段", "7段", "8段", "9段", "10段", "15段", "20段", "25段", "30段", "随机段数"]
     },
     {
-      id: "duration",
+      id: "shotDuration",
       name: "时长",
       choices: ["15s", "4-15s随机"]
     },

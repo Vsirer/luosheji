@@ -56,8 +56,8 @@ const DEFAULT_API_CONFIG = {
   script: {
     provider: 'Third Party',
     endpoint: 'https://api.vectorengine.ai',
-    path: '/v1beta/models/gemini-3.5-flash:generateContent',
-    model: 'gemini-3.5-flash',
+    path: '/v1beta/models/gemini-1.5-pro:generateContent',
+    model: 'gemini-1.5-pro',
     apiKey: '',
     protocolType: 'openai'
   },
@@ -260,12 +260,12 @@ async function startServer() {
           
           // Migrate models
           if (config.script) {
-            if (config.script.model === 'gemini-1.5-pro') {
-              config.script.model = 'gemini-3.1-pro';
+            if (config.script.model === 'gemini-3.1-pro' || config.script.model === 'gemini-3.5-flash') {
+              config.script.model = 'gemini-1.5-pro';
               changed = true;
             }
-            if (config.script.path?.includes('gemini-1.5-pro')) {
-              config.script.path = config.script.path.replace('gemini-1.5-pro', 'gemini-3.1-pro');
+            if (config.script.path?.includes('gemini-3.1-pro') || config.script.path?.includes('gemini-3.5-flash')) {
+              config.script.path = config.script.path.replace('gemini-3.1-pro', 'gemini-1.5-pro').replace('gemini-3.5-flash', 'gemini-1.5-pro');
               changed = true;
             }
           }

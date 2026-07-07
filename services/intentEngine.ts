@@ -19,7 +19,7 @@ import { cameraControlSkill } from "../plugin/definitions/cameraControl";
 
 export interface IntentStep {
   id: string;
-  type: "script" | "image" | "video";
+  type: "script" | "image" | "video" | "code" | "ui";
   label: string;
   prompt: string;
   status: "pending" | "running" | "completed" | "failed";
@@ -28,6 +28,7 @@ export interface IntentStep {
   aspectRatio?: string;
   duration?: string;
   skillId?: string; // Links directly to a specific system skill
+  enabled?: boolean;
 }
 
 export interface IntentPlan {
@@ -121,12 +122,13 @@ const INTENT_ENGINE_SYSTEM_INSTRUCTION = `
 
 三、你的职责、交互与决策流程：
 1. **优先进行通用对话或直接大模型回答**：
-   - 如果用户只是在进行概念探讨、日常提问、闲聊，或者他的最新指令不包含明确跨阶段/跨多模态的自动化流程：
-     * 你必须以极其亲切、专业、智能的语气解答。
+   - 如果用户只是在进行概念探讨、日常提问、闲聊、编写纯文案/广告词/剧本/脚本/文案策划、或进行文本类的多维度对比/分析，并且**其指令中没有明确提出要求生成『流水线』、『工作流』、『作战沙盘』，也不属于必须渲染图像或视频等多模态并行的复杂制作场景**：
+     * 你**必须**选择通用对话，直接进行文本回复。
      * 你必须展示【小逻·操作系统大模型与SKILL画像】仪表盘，方便用户了解。
      * 返回格式：\`{"isPipeline": false, "response": "仪表盘Markdown + 你的详细文本回答"}\`
+     * **绝对严禁**自作主张地将用户单纯索要文字、广告词、文案或剧本的需求（例如“帮我写10份广告文案”）自动规划为包含多步节点（如 Strategy, Concept, Copywriting, Image, Video 等）的 \`isPipeline: true\` 流水线！对于此类纯文本创作或日常疑问，必须以 \`isPipeline: false\` 返回，并在 \`response\` 字段中提供原本高品质的文案或解答内容！
 2. **动态规划“自动化执行链流水线” (isPipeline: true)**：
-   - 只要用户的指令包含具体的创意制作、生图、合成、多镜头策划等，你必须规划流水线执行计划。
+   - 只有当用户的指令包含明确要求创建、部署或转换「流水线/工作流/作战沙盘/连线图」，或者其最新输入包含明确的多模态制作需求（例如“帮我把这个故事生成配套的图片和视频”、“生成带有原画和视频的流水线工作流”等）时，你才可以规划并返回多模态流水线执行计划。
    - 编排精细合理的步骤。每个步骤可以是一个 \`script\`(文本撰写/分析/策略)、\`image\`(原画绘制/资产设计) 或 \`video\`(视频合成)。
    - 在步骤中合理设置 \`skillId\`。如果是特定的生图技能，记得映射其 \`skillId\` (例如：三视图映射 \`six-view\`，场景映射 \`scene-plan\`，九宫格映射 \`grid-storyboard\`，全景映射 \`panorama\`，相机参数映射 \`camera-control\`)。
    - 在 \`rationale\` 字段中，用一两句话对你本次的独家定制步骤设计进行解释（说明所调度的底层动力大模型和匹配到的SKILL）。
@@ -140,7 +142,8 @@ const INTENT_ENGINE_SYSTEM_INSTRUCTION = `
   "steps": [
     {
       "id": "step_1_script",
-      "type": "script",
+      "dependsOn": [],
+      "type": "script" | "image" | "video" | "code" | "ui",
       "label": "步骤显示标题 (例如: 🎬 剧本创作: 创意广告分镜脚本)",
       "prompt": "分配给该步骤大模型的具体、详尽、高创意的提示词/任务大纲",
       "skillId": "create-script",
@@ -218,6 +221,41 @@ export class IntentEngine extends BaseAgent {
       const responseText = response.text || (response.candidates?.[0]?.content?.parts?.[0]?.text) || "";
       const parsed = this.extractJson(responseText);
       if (parsed) {
+        // Strict heuristic override for simple requests to respect user intent:
+        // Unless user explicitly requests a pipeline, sandbox, workflow, or combat plan,
+        // or asks for multi-modal generations (like "image AND video", "生图和视频"),
+        // we override isPipeline to false and compile it into a normal text response.
+        const pipelineKeywords = ["作战沙盘", "沙盘", "工作流", "工作链", "流水线", "连线图", "连线", "节点", "pipeline", "workflow", "sandbox", "一键生成", "一键部署", "转换为", "转化为", "工作台"];
+        const hasPipelineKeyword = pipelineKeywords.some(keyword => lowerPrompt.includes(keyword));
+
+        const hasMultiModalRequest = (
+          (lowerPrompt.includes("生图") || lowerPrompt.includes("画") || lowerPrompt.includes("原画") || lowerPrompt.includes("插画") || lowerPrompt.includes("图片") || lowerPrompt.includes("海报") || lowerPrompt.includes("设计")) &&
+          (lowerPrompt.includes("视频") || lowerPrompt.includes("镜头") || lowerPrompt.includes("动") || lowerPrompt.includes("合成") || lowerPrompt.includes("渲染"))
+        );
+
+        if (parsed.isPipeline && !hasPipelineKeyword && !hasMultiModalRequest) {
+          // LLM incorrectly returned isPipeline: true. Let's merge the planned step descriptions into a structured copywriting text response!
+          let compiledResponse = `✨ **小逻已为您创作完成以下创意方案：**\n\n`;
+          if (parsed.rationale) {
+            compiledResponse += `💡 *策划思路：${parsed.rationale}*\n\n---\n\n`;
+          }
+          if (Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+            parsed.steps.forEach((step: any, idx: number) => {
+              if (step.type === 'script' || step.type === 'code' || step.type === 'ui') {
+                compiledResponse += `### ${step.label || `模块 ${idx + 1}`}\n${step.prompt}\n\n`;
+              } else if (step.type === 'image') {
+                compiledResponse += `### 🎨 画面设想: ${step.label || `原画设计`}\n> **原画提示词/构图**：${step.prompt}\n\n`;
+              } else if (step.type === 'video') {
+                compiledResponse += `### 🎬 视频合成: ${step.label || `镜头合成`}\n> **镜头动画运动**：${step.prompt}\n\n`;
+              }
+            });
+          } else if (parsed.response) {
+            compiledResponse += parsed.response;
+          }
+          parsed.isPipeline = false;
+          parsed.response = compiledResponse;
+        }
+
         // Enforce aspect ratio and duration heuristics on LLM-parsed pipeline steps
         if (parsed.isPipeline && Array.isArray(parsed.steps)) {
           let detectedRatio: string | undefined = undefined;
@@ -258,7 +296,7 @@ export class IntentEngine extends BaseAgent {
         }
         return parsed as IntentPlan;
       } else {
-        if (scriptModel !== "gemini-3.5-flash") {
+        if (scriptModel !== "gemini-3.5-flash" && scriptModel !== "gemini-1.5-pro") {
           throw new Error("接口返回内容无法解析为结构化意图（非合法的 JSON 格式）。请确保您的接口输出格式正常。");
         }
       }
@@ -275,7 +313,7 @@ export class IntentEngine extends BaseAgent {
 **💡 建议您检查以下配置：**
 1. **API 密钥配置**：请点击页面右上角的 **[设置 / 大模型 API 设置]**，确保已正确填写了 **${scriptModel}** 的 API Key 以及对应的 Endpoint (接口端点)。
 2. **网络与中转接口**：如果您使用的是第三方中转服务，请确认该中转端点及模型路径是否配置正确，且账户配额是否充沛。
-3. **切换回系统推荐模型**：在底部下拉菜单中，将文本大模型切换回系统原生集成的 **Gemini 3.5 Flash**。该推荐模型在平台内已预置默认的高速通道，无需任何配置即可即开即用！`
+3. **切换回系统推荐模型**：在底部下拉菜单中，将文本大模型切换回系统原生集成的 **Gemini 1.5 Pro**。该推荐模型在平台内已预置默认的高速通道，无需任何配置即可即开即用！`
       };
     }
 
@@ -878,6 +916,42 @@ export class IntentEngine extends BaseAgent {
       } else {
         throw new Error("视频渲染失败，未获取到异步任务ID");
       }
+    }
+
+    if (step.type === "code" || step.type === "ui") {
+      const model = globalConfig.script?.model || "gemini-3.5-flash";
+      const systemInstruction = step.type === "ui" 
+        ? "你是一位顶级前端工程师。请根据用户需求，生成一个纯粹的、无多余标记的 React 代码片段（包含内联 TailwindCSS）。你可以直接返回 `const { useState } = React; function App() { ... } const root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);`，只需返回可执行的纯代码（去除 Markdown ```javascript 等包装）。"
+        : "你是一位顶级系统架构师。请根据用户需求，生成纯净的 JavaScript/React 代码在前端沙箱中执行。禁止使用 Node.js 模块。只需返回可执行的纯代码（去除 Markdown ```javascript 等包装）。";
+      
+      let context = "";
+      for (const [prevId, prevOut] of Object.entries(previousOutputs)) {
+        if (prevOut && prevOut.text) {
+          const stepLabel = prevId.replace("step_", "").toUpperCase();
+          context += `\n\n【上游环节 - ${stepLabel} 阶段输出成果】：\n${prevOut.text}\n`;
+        }
+      }
+
+      let promptText = step.prompt;
+      if (context) {
+        promptText = `${step.prompt}\n\n以下是流水线上游环节为您准备的完整方案上下文，请严格参考并在此基础上开展你的本阶段代码创作：\n${context}`;
+      }
+
+      if (onProgress) onProgress(`✨ 正在调用代码生成大脑，构建 ${step.type === "ui" ? "Generative UI" : "前端执行沙箱"} 代码...`);
+
+      const response = await directorAgent.callApi("script", "generateContent", {
+        model,
+        contents: [{ role: "user", parts: [{ text: promptText }] }],
+        config: { systemInstruction, temperature: 0.2 }
+      }, config);
+
+      let text = response.text || (response.candidates?.[0]?.content?.parts?.[0]?.text) || "";
+      // Strip markdown code blocks
+      text = text.replace(/^```(javascript|js|tsx|ts|jsx)\s*/g, '').replace(/```$/g, '').trim();
+
+      return {
+        code: text
+      };
     }
 
     throw new Error(`未知的意图步骤类型: ${step.type}`);

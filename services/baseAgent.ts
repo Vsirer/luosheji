@@ -212,7 +212,7 @@ export class BaseAgent {
   }
 
   protected normalizeModel(model: string): string {
-    if (!model) return 'gemini-1.5-pro';
+    if (!model) return 'gemini-3.5-flash';
     const normalized = model.trim().toLowerCase();
     
     // Internal mapping cleanup (Image) - MUST be checked before general gemini mappings
@@ -1028,7 +1028,7 @@ export class BaseAgent {
             const targetName = isSeedance ? 'Seedance / Ark' : (targetModel || type);
             // Hint for common model mismatch errors that show up as 401/Invalid Token
             const hint = "";
-            throw new Error(`API 令牌 (Token) 无效 [${targetName}]${hint}: ${errorMsg}。请在大模型设置中检查您的 API Key 或尝试更换模型（如 gemini-1.5-pro）。`);
+            throw new Error(`API 令牌 (Token) 无效 [${targetName}]${hint}: ${errorMsg}。请在大模型设置中检查您的 API Key 或尝试更换模型（如 gemini-3.5-flash）。`);
           }
           
           const isRateLimit = response.status === 429 || errorMsg.includes('负载已饱和') || errorMsg.includes('overloaded') || errorMsg.includes('busy') || (result?.code === 'model_not_found' && errorMsg.includes('饱和'));

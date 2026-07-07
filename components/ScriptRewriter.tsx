@@ -157,7 +157,7 @@ export const ScriptRewriter: React.FC<ScriptRewriterProps> = ({
       }
 
       let targetUrl = (config.script.endpoint || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
-      const model = config?.script?.model || 'gemini-1.5-pro-latest';
+      const model = config?.script?.model || 'gemini-3.5-flash';
       
       if (targetUrl.includes('generativelanguage.googleapis.com')) {
         targetUrl += `/v1beta/models/${model}:generateContent`;

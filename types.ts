@@ -161,11 +161,13 @@ export interface ApiConfig {
   endpoint: string;
   path: string;
   model: string;
+  displayName?: string;
   apiKey: string;
   protocolType?: 'google' | 'openai' | 'claude' | 'anthropic'; // 'google' for Official Gemini format, 'openai' for Proxy format, 'claude' for Claude Messages format
   project?: string; // Volcengine Project
   accessKeyId?: string; // Volcengine AK
   secretKey?: string; // Volcengine SK
+  modelType?: 'text' | 'image' | 'video';
 }
 
 export interface Config {
@@ -276,8 +278,8 @@ export interface CameraParams {
 
 export interface HistoryItem {
   id: string;
-  type?: 'image' | 'video' | 'media_assets' | 'gen_script' | 'audio';
-  status: 'loading' | 'processing' | 'success' | 'error' | 'draft_new';
+  type?: 'image' | 'video' | 'media_assets' | 'gen_script' | 'audio' | 'code' | 'ui' | 'general';
+  status: 'loading' | 'processing' | 'success' | 'error' | 'draft_new' | 'running' | 'pipeline_pending' | 'pending' | 'failed';
   imageUrl?: string;
   videoUrl?: string;
   ossUrl?: string;

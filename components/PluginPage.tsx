@@ -9,7 +9,8 @@ import {
   Bot,
   Edit2,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Clock
 } from 'lucide-react';
 import { AiSkill } from '../skills/types';
 import { PLUGINS } from '../plugin';
@@ -30,6 +31,22 @@ interface PluginPageProps {
 
 export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
   const [customSkills, setCustomSkills] = useState<AiSkill[]>([]);
+  const [tick, setTick] = useState(0);
+  const forceUpdate = () => setTick(t => t + 1);
+
+  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem('selected_plugin_ids');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    const oldActive = localStorage.getItem('selected_ai_skill');
+    if (oldActive && oldActive !== 'general') {
+      return [oldActive];
+    }
+    return PLUGINS.map(p => p.id);
+  });
   const [activeSkillId, setActiveSkillId] = useState<string>(() => {
     return localStorage.getItem('selected_ai_skill') || 'general';
   });
@@ -63,6 +80,26 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
     }
   };
 
+  const handleApprovePlugin = (id: string) => {
+    try {
+      const userPluginsStr = localStorage.getItem('user_plugins');
+      if (userPluginsStr) {
+        const userPlugins = JSON.parse(userPluginsStr);
+        const updated = userPlugins.map((p: any) => {
+          if (p.id === id) {
+            return { ...p, status: 'approved', isPublic: true };
+          }
+          return p;
+        });
+        localStorage.setItem('user_plugins', JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent('skills-changed'));
+        alert('插件已通过审核并直接启用！');
+      }
+    } catch (e) {
+      console.error('Failed to approve plugin:', e);
+    }
+  };
+
   useEffect(() => {
     fetchSkills();
     
@@ -72,16 +109,37 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
         setActiveSkillId(e.detail.skillId);
       }
     };
+    const handlePluginsChange = (e: any) => {
+      if (e.detail && Array.isArray(e.detail.pluginIds)) {
+        setSelectedPluginIds(e.detail.pluginIds);
+      }
+    };
+    const handleSkillsRefresh = () => {
+      forceUpdate();
+    };
     window.addEventListener('selected-skill-changed', handleSkillChange);
+    window.addEventListener('selected-plugins-changed', handlePluginsChange);
+    window.addEventListener('skills-changed', handleSkillsRefresh);
     return () => {
       window.removeEventListener('selected-skill-changed', handleSkillChange);
+      window.removeEventListener('selected-plugins-changed', handlePluginsChange);
+      window.removeEventListener('skills-changed', handleSkillsRefresh);
     };
   }, []);
 
   const handleSelectSkill = (id: string) => {
-    setActiveSkillId(id);
-    localStorage.setItem('selected_ai_skill', id);
-    window.dispatchEvent(new CustomEvent('selected-skill-changed', { detail: { skillId: id } }));
+    setSelectedPluginIds(prev => {
+      const isSelected = prev.includes(id);
+      let next: string[];
+      if (isSelected) {
+        next = prev.filter(item => item !== id);
+      } else {
+        next = [...prev, id];
+      }
+      localStorage.setItem('selected_plugin_ids', JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent('selected-plugins-changed', { detail: { pluginIds: next } }));
+      return next;
+    });
   };
 
   const handleStartEdit = (plugin: AiSkill) => {
@@ -266,20 +324,33 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
               </div>
 
               <div className="flex items-center justify-between border-t border-gray-50 mt-5 pt-3.5">
-                <span className="text-[10px] text-gray-400 flex items-center font-semibold">
-                  {skill.isPublic ? <Globe className="w-3.5 h-3.5 mr-1 text-emerald-500" /> : <Lock className="w-3.5 h-3.5 mr-1 text-gray-400" />}
-                  {skill.isPublic ? '公开共享中' : '仅自己可见'}
+                <span className="text-[10px] flex items-center font-semibold">
+                  {skill.isPublic ? (
+                    <>
+                      <Globe className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                      <span className="text-emerald-500">公开共享中</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                      <span className="text-gray-400">仅自己可见</span>
+                    </>
+                  )}
                 </span>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5">
                   <button
                     onClick={() => {
                       handleSelectSkill(skill.id);
                     }}
-                    className="px-4 py-1.5 text-[11px] font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100/55 cursor-default flex items-center space-x-1"
+                    className={`px-2.5 py-1.5 text-[11px] font-bold rounded-xl flex items-center space-x-1 border transition-all cursor-pointer ${
+                      selectedPluginIds.includes(skill.id)
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-100/55'
+                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 active:scale-95'
+                    }`}
                   >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>已添加</span>
+                    <Check className="w-3.5 h-3.5 animate-in zoom-in-50 duration-200" />
+                    <span>{selectedPluginIds.includes(skill.id) ? '已选中' : '选择'}</span>
                   </button>
                 </div>
               </div>

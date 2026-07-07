@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 // @ts-ignore
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // @ts-ignore
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 // @ts-ignore
-import { Reflector } from 'three/examples/jsm/objects/Reflector';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { 
   RotateCw, 
   Move, 
@@ -137,7 +137,7 @@ export const DirectorStage: React.FC<DirectorStageProps> = ({ onParamsChange, re
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const transformRef = useRef<TransformControls | null>(null);
+  const transformRef = useRef<any>(null);
   
   const defaultChar: CharacterInstance = {
     id: 'char-1',
@@ -494,7 +494,7 @@ export const DirectorStage: React.FC<DirectorStageProps> = ({ onParamsChange, re
     orbit.target.set(0, 1, 0);
     controlsRef.current = orbit;
 
-    const transform = new TransformControls(camera, renderer.domElement);
+    const transform = new TransformControls(camera, renderer.domElement) as any;
     transform.addEventListener('dragging-changed', (event) => {
       orbit.enabled = !event.value;
       

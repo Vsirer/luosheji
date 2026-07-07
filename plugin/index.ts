@@ -9,6 +9,7 @@ export const PLUGINS: AiSkill[] = new Proxy(SYSTEM_PLUGINS, {
       try {
         const deletedIds = JSON.parse(localStorage.getItem('deleted_system_plugins') || '[]');
         const editedPlugins = JSON.parse(localStorage.getItem('edited_system_plugins') || '{}');
+        const userPlugins = JSON.parse(localStorage.getItem('user_plugins') || '[]');
         const active = SYSTEM_PLUGINS
           .filter(p => !deletedIds.includes(p.id))
           .map(p => {
@@ -16,7 +17,7 @@ export const PLUGINS: AiSkill[] = new Proxy(SYSTEM_PLUGINS, {
               return { ...p, ...editedPlugins[p.id] };
             }
             return p;
-          });
+          }).concat(userPlugins);
         const val = Reflect.get(active, prop, receiver);
         if (typeof val === 'function') {
           return val.bind(active);

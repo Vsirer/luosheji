@@ -18,4 +18,5 @@ export interface AiSkill {
   tier?: 'light' | 'heavy';
   customOptions?: CustomSkillOption[] | null;
   category?: 'text' | 'image' | 'video' | 'all';
+  status?: 'pending' | 'approved' | 'rejected';
 }

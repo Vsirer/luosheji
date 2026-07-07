@@ -30,6 +30,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { PromptWithMentions } from "./PromptWithMentions";
 import { getAssetCategory } from "./workflow-utils";
 import { getThumbnailUrl } from "../services/utils";
+import { PLUGINS } from "../plugin";
+import { Config } from "../types";
 
 const INLINE_GRID_MODES_SKILLS = [
   {
@@ -165,6 +167,7 @@ interface InlineGenerationConsoleProps {
   showPointAndShootEditor?: boolean;
   setShowPointAndShootEditor?: React.Dispatch<React.SetStateAction<boolean>>;
   customModels?: any[];
+  config?: Config;
 }
 
 export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = ({
@@ -196,7 +199,8 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
   setShowPerspectiveSim,
   showPointAndShootEditor,
   setShowPointAndShootEditor,
-  customModels = []
+  customModels = [],
+  config
 }) => {
   const isImage = item.type === "image";
 
@@ -209,6 +213,35 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
     return 'image';
   };
   const [promptText, setPromptText] = useState("");
+  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("selected_plugin_ids");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+      const oldActive = localStorage.getItem("selected_ai_skill");
+      if (oldActive && oldActive !== "general") {
+        return [oldActive];
+      }
+      return PLUGINS.map(p => p.id);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    const handlePluginsChange = (e: any) => {
+      if (e.detail && Array.isArray(e.detail.pluginIds)) {
+        setSelectedPluginIds(e.detail.pluginIds);
+      }
+    };
+    window.addEventListener("selected-plugins-changed", handlePluginsChange);
+    return () => {
+      window.removeEventListener("selected-plugins-changed", handlePluginsChange);
+    };
+  }, []);
+
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showSkillsDropdown, setShowSkillsDropdown] = useState(false);
@@ -499,38 +532,86 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
 
   // Helper to resolve clean labels for model values
   const getModelLabel = () => {
+    // Dynamic image models from config
+    const dynamicImageModels: { label: string; value: string }[] = [];
+    if (config) {
+      const keys: (keyof Config)[] = ['script', 'image', 'video', 'videoSeedance', 'videoSeedanceMini', 'gptImage', 'claudeSonnet'];
+      keys.forEach(key => {
+        const section = config[key];
+        if (section && section.model) {
+          let isTypeMatch = section.modelType === 'image';
+          if (!section.modelType) {
+            isTypeMatch = (key === 'image' || key === 'gptImage');
+          }
+          if (isTypeMatch) {
+            const defaultLabel = key === 'image' ? 'nano banana 2' : (key === 'gptImage' ? 'GPT-Image-2' : section.model);
+            dynamicImageModels.push({
+              label: section.displayName || defaultLabel,
+              value: section.model
+            });
+          }
+        }
+      });
+    } else {
+      dynamicImageModels.push(
+        { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
+        { label: "GPT-Image-2", value: "gpt-image-2" }
+      );
+    }
+
     const customImageModels = (customModels || [])
-      .filter((m: any) => m.type === "image" || m.type === "all")
+      .filter((m: any) => m.type === "image" || m.type === "all" || m.modelType === "image")
       .map((m: any) => ({
         label: m.name || m.model,
         value: m.model,
       }));
-    const allAvailableImageModels = [
-      ...[
-        { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
-        { label: "GPT-Image-2", value: "gpt-image-2" },
-      ],
-      ...customImageModels
-    ];
 
-    const customVideoModels = (customModels || [])
-      .filter((m: any) => m.type === "video" || m.type === "all")
-      .map((m: any, idx: number) => ({
-        label: m.name || m.model || "Unnamed Video Model",
-        value: m.model || m.id || m.name || `custom-video-${idx}`,
-      }));
-    const allVideoModels = [
-      ...[
+    const allAvailableImageModels = [
+      ...dynamicImageModels,
+      ...customImageModels
+    ].filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
+
+    // Dynamic video models from config
+    const dynamicVideoModels: { label: string; value: string }[] = [];
+    if (config) {
+      const keys: (keyof Config)[] = ['videoSeedance', 'videoSeedanceMini'];
+      keys.forEach(key => {
+        const section = config[key];
+        if (section && section.model) {
+          const defaultLabel = key === 'videoSeedance' ? 'RH-SD2.0' :
+                               key === 'videoSeedanceMini' ? 'RH-SD2.0mini' : section.model;
+          dynamicVideoModels.push({
+            label: section.displayName || defaultLabel,
+            value: section.model
+          });
+        }
+      });
+    } else {
+      dynamicVideoModels.push(
         { label: "RH-SD2.0", value: "seedance2.0" },
         { label: "RH-SD2.0mini", value: "seedance-mini" },
-        { label: "SD.25即将上线", value: "seedance2.5" },
-      ],
+        { label: "SD.25即将上线", value: "seedance2.5" }
+      );
+    }
+
+    const customVideoModels = (customModels || [])
+      .filter((m: any) => m.type === "video" || m.type === "all" || m.modelType === "video")
+      .map((m: any) => ({
+        label: m.name || m.model || "Unnamed Video Model",
+        value: m.model,
+      }));
+
+    const allVideoModels = [
+      ...dynamicVideoModels,
       ...customVideoModels
     ].filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
 
     if (isImage) {
-      const activeModel = allAvailableImageModels.find(m => m.value === (imageConfig.model || "gemini-3.1-flash-image-preview"));
-      return activeModel ? activeModel.label : (imageConfig.model || "nano banana 2");
+      const targetModelVal = (imageConfig.model === "gemini-3.1-flash-image-preview" || !imageConfig.model)
+        ? (config?.image?.model || "gemini-3.1-flash-image-preview")
+        : imageConfig.model;
+      const activeModel = allAvailableImageModels.find(m => m.value === targetModelVal);
+      return activeModel ? activeModel.label : (config?.image?.displayName || imageConfig.model || "nano banana 2");
     } else {
       const activeModel = allVideoModels.find(m => m.value === (videoConfig.model || "seedance2.0"));
       return activeModel ? activeModel.label : (videoConfig.model || "RH-SD2.0");
@@ -1000,39 +1081,86 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
                       <span className="text-[9px] font-normal text-zinc-400 dark:text-zinc-500">Models</span>
                     </div>
                     {(() => {
+                      // Dynamic image models from config
+                      const dynamicImageModels: { label: string; value: string }[] = [];
+                      if (config) {
+                        const keys: (keyof Config)[] = ['script', 'image', 'video', 'videoSeedance', 'videoSeedanceMini', 'gptImage', 'claudeSonnet'];
+                        keys.forEach(key => {
+                          const section = config[key];
+                          if (section && section.model) {
+                            let isTypeMatch = section.modelType === 'image';
+                            if (!section.modelType) {
+                              isTypeMatch = (key === 'image' || key === 'gptImage');
+                            }
+                            if (isTypeMatch) {
+                              const defaultLabel = key === 'image' ? 'nano banana 2' : (key === 'gptImage' ? 'GPT-Image-2' : section.model);
+                              dynamicImageModels.push({
+                                label: section.displayName || defaultLabel,
+                                value: section.model
+                              });
+                            }
+                          }
+                        });
+                      } else {
+                        dynamicImageModels.push(
+                          { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
+                          { label: "GPT-Image-2", value: "gpt-image-2" }
+                        );
+                      }
+
                       const customImageModels = (customModels || [])
-                        .filter((m: any) => m.type === "image" || m.type === "all")
+                        .filter((m: any) => m.type === "image" || m.type === "all" || m.modelType === "image")
                         .map((m: any) => ({
                           label: m.name || m.model,
                           value: m.model,
                         }));
-                      const allAvailableImageModels = [
-                        ...[
-                          { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
-                          { label: "GPT-Image-2", value: "gpt-image-2" },
-                        ],
-                        ...customImageModels
-                      ];
 
-                      const customVideoModels = (customModels || [])
-                        .filter((m: any) => m.type === "video" || m.type === "all")
-                        .map((m: any, idx: number) => ({
-                          label: m.name || m.model || "Unnamed Video Model",
-                          value: m.model || m.id || m.name || `custom-video-${idx}`,
-                        }));
-                      const allVideoModels = [
-                        ...[
+                      const allAvailableImageModels = [
+                        ...dynamicImageModels,
+                        ...customImageModels
+                      ].filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
+
+                      // Dynamic video models from config
+                      const dynamicVideoModels: { label: string; value: string }[] = [];
+                      if (config) {
+                        const keys: (keyof Config)[] = ['videoSeedance', 'videoSeedanceMini'];
+                        keys.forEach(key => {
+                          const section = config[key];
+                          if (section && section.model) {
+                            const defaultLabel = key === 'videoSeedance' ? 'RH-SD2.0' :
+                                                 key === 'videoSeedanceMini' ? 'RH-SD2.0mini' : section.model;
+                            dynamicVideoModels.push({
+                              label: section.displayName || defaultLabel,
+                              value: section.model
+                            });
+                          }
+                        });
+                      } else {
+                        dynamicVideoModels.push(
                           { label: "RH-SD2.0", value: "seedance2.0" },
                           { label: "RH-SD2.0mini", value: "seedance-mini" },
-                          { label: "SD.25即将上线", value: "seedance2.5" },
-                        ],
+                          { label: "SD.25即将上线", value: "seedance2.5" }
+                        );
+                      }
+
+                      const customVideoModels = (customModels || [])
+                        .filter((m: any) => m.type === "video" || m.type === "all" || m.modelType === "video")
+                        .map((m: any) => ({
+                          label: m.name || m.model || "Unnamed Video Model",
+                          value: m.model,
+                        }));
+
+                      const allVideoModels = [
+                        ...dynamicVideoModels,
                         ...customVideoModels
                       ].filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
 
                       return isImage ? allAvailableImageModels : allVideoModels;
                     })().map((m) => {
                       const isSelected = isImage 
-                        ? (imageConfig.model || "gemini-3.1-flash-image-preview") === m.value
+                        ? (imageConfig.model === m.value ||
+                           ((imageConfig.model || "gemini-3.1-flash-image-preview") === "gemini-3.1-flash-image-preview" &&
+                            m.value === (config?.image?.model || "gemini-3.1-flash-image-preview")))
                         : (videoConfig.model || "seedance2.0") === m.value;
                       return (
                         <button
@@ -1523,7 +1651,7 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
                               },
                               isSelected: !!cameraParams,
                             }
-                          ].filter(plugin => getPluginCategory(plugin.id) === "image").map((plugin) => {
+                          ].filter(plugin => getPluginCategory(plugin.id) === "image" && selectedPluginIds.includes(plugin.id)).map((plugin) => {
                             const isSelected = plugin.isSelected;
                             return (
                               <button
@@ -1759,7 +1887,7 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
                                 },
                                 isSelected: !!cameraParams,
                               }
-                            ].filter(plugin => getPluginCategory(plugin.id) === "video");
+                            ].filter(plugin => getPluginCategory(plugin.id) === "video" && selectedPluginIds.includes(plugin.id));
 
                             if (videoPlugins.length === 0) {
                               return (

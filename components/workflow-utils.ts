@@ -262,6 +262,26 @@ export const getAssetCategory = (asset: any): { main: "图片" | "视频" | "音
 };
 
 export const getActualCanvasCardSizeAndPort = (item: HistoryItem) => {
+  if (item.status === "pipeline_pending" || item.status === "pending" || item.status === "running" || (item.config?.isPipelineNode && (item.status === "error" || item.status === "failed"))) {
+    const w = 360;
+    const h = 340;
+    return {
+      width: w,
+      height: h,
+      portX: w + 15,
+      portY: h / 2,
+    };
+  }
+  if (item.type === "audio") {
+    const w = 360;
+    const h = 270;
+    return {
+      width: w,
+      height: h,
+      portX: w + 15,
+      portY: h / 2,
+    };
+  }
   if (item.config?.isSkillNode || item.config?.isIntegratedModelNode) {
     const w = 360;
     const h = 460;
@@ -282,17 +302,9 @@ export const getActualCanvasCardSizeAndPort = (item: HistoryItem) => {
       portY: h / 2,
     };
   }
-  if ((item as any).status === "pipeline_pending" || (item as any).status === "pending" || (item as any).status === "running" || (item.config as any)?.isPipelineNode) {
-    return {
-      width: 360,
-      height: 340,
-      portX: 360 + 15,
-      portY: 170,
-    };
-  }
-  if (item.type === "audio") {
-    const w = 360;
-    const h = 270;
+  if (item.type === "code" || item.type === "ui") {
+    const w = 480;
+    const h = 400;
     return {
       width: w,
       height: h,

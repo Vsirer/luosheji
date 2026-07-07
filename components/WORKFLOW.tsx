@@ -75,6 +75,7 @@ import {
   Cpu,
   Wrench,
   ChevronsRight,
+  Puzzle,
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
@@ -632,10 +633,14 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   projectAssets = [],
   isCollaborationTabActive = false,
 }) => {
+  const [isPopupActive, setIsPopupActive] = useState(false);
   const [collabWidth, setCollabWidth] = useState(500);
   const [isCollabCollapsed, setIsCollabCollapsed] = useState(false);
   const [isInputCardMinimized, setIsInputCardMinimized] = useState(true);
   const [localForwardMaterial, setLocalForwardMaterial] = useState<{ url?: string; name: string; type: string; content?: string } | null>(null);
+  const handleClearInitialMaterial = React.useCallback(() => {
+    setLocalForwardMaterial(null);
+  }, []);
   const [isResizing, setIsResizing] = useState(false);
   const [collabHasUnread, setCollabHasUnread] = useState(false);
   const [collabChatTargetId, setCollabChatTargetId] = useState<string>("team");
@@ -745,12 +750,56 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
 
   const [localTextModel, setLocalTextModel] = useState<string>(() => {
     const val = config?.script?.model || "gemini-3.5-flash";
-    return val === "gemini-3.1-pro" ? "gemini-3.5-flash" : val;
+    return val === "gemini-3.1-pro" || val === "gemini-1.5-pro" ? "gemini-3.5-flash" : val;
   });
   const [showAiAssistantModelMenu, setShowAiAssistantModelMenu] = useState(false);
 
+  const handleSelectTextModel = (modelId: string) => {
+    if (config && config.script) {
+      config.script.model = modelId;
+      
+      // Find the model in customModels
+      const customM = customModels.find((m: any) => (m.model || m.id || m.name) === modelId);
+      
+      if (modelId === (config?.claudeSonnet?.model || "claude-sonnet-5")) {
+        config.script.endpoint = config?.claudeSonnet?.endpoint || 'https://api.vectorengine.ai';
+        config.script.apiKey = config?.claudeSonnet?.apiKey || '';
+        config.script.provider = config?.claudeSonnet?.provider || 'Third Party';
+        config.script.path = config?.claudeSonnet?.path || '';
+        config.script.protocolType = config?.claudeSonnet?.protocolType || 'openai';
+        config.script.displayName = config?.claudeSonnet?.displayName || 'Claude-sonnet-5';
+      } else if (customM && customM.endpoint) {
+        config.script.endpoint = customM.endpoint;
+        config.script.apiKey = customM.apiKey || '';
+        config.script.provider = customM.provider || 'Third Party';
+        config.script.path = customM.path || '/v1/chat/completions';
+        config.script.protocolType = 'openai';
+      } else if (initialConfigScriptRef.current) {
+        config.script.endpoint = initialConfigScriptRef.current.endpoint;
+        config.script.apiKey = initialConfigScriptRef.current.apiKey;
+        config.script.provider = initialConfigScriptRef.current.provider;
+        config.script.path = initialConfigScriptRef.current.path;
+        config.script.protocolType = initialConfigScriptRef.current.protocolType;
+      }
+    }
+    setLocalTextModel(modelId);
+  };
+
   const isAiAssistantActive = isCollabModeActive && collabChatTargetId.endsWith('_ai');
   const showSubModeOptions = true;
+
+  useEffect(() => {
+    const handlePopupChange = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent && customEvent.detail) {
+        setIsPopupActive(!!customEvent.detail.isFullscreen);
+      }
+    };
+    window.addEventListener('generative-ui-fullscreen-change', handlePopupChange);
+    return () => {
+      window.removeEventListener('generative-ui-fullscreen-change', handlePopupChange);
+    };
+  }, []);
 
 
 
@@ -2153,6 +2202,35 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   }, []);
   const isCurrentGpt2 = imageConfig?.model?.startsWith("gpt-image-2");
   const [dissectingItemId, setDissectingItemId] = useState<string | null>(null);
+  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("selected_plugin_ids");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {}
+      }
+      const oldActive = localStorage.getItem("selected_ai_skill");
+      if (oldActive && oldActive !== "general") {
+        return [oldActive];
+      }
+      return PLUGINS.map(p => p.id);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    const handlePluginsChange = (e: any) => {
+      if (e.detail && Array.isArray(e.detail.pluginIds)) {
+        setSelectedPluginIds(e.detail.pluginIds);
+      }
+    };
+    window.addEventListener("selected-plugins-changed", handlePluginsChange);
+    return () => {
+      window.removeEventListener("selected-plugins-changed", handlePluginsChange);
+    };
+  }, []);
+
   const [workflowSkills, setWorkflowSkills] = useState<any[]>(() =>
     SYSTEM_SKILLS.filter(
       (s) => !PLUGINS.some((m) => m.id === s.id)
@@ -2247,6 +2325,62 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       window.removeEventListener("skills-changed", fetchWorkflowSkills);
     };
   }, []);
+
+  useEffect(() => {
+    const handleAddPluginToCanvas = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { skill } = customEvent.detail || {};
+      if (!skill) return;
+
+      const scale = transformState.scale || 1;
+      const centerX = -transformState.x / scale + (window.innerWidth / 2) / scale;
+      const centerY = -transformState.y / scale + (window.innerHeight / 2) / scale;
+
+      const timestamp = Date.now();
+      const newSkillItem: HistoryItem = {
+        id: `skill-${timestamp}`,
+        type: "gen_script",
+        status: "success",
+        parentId: "",
+        revisedPrompt: skill.instruction || `【${skill.name}】插件节点已就绪。连接上游节点并点击下方执行。`,
+        timestamp: timestamp,
+        canvasId: activeCanvasId,
+        position: {
+          x: centerX - 180,
+          y: centerY - 170,
+          customX: centerX - 180,
+          customY: centerY - 170,
+          mindmap: {
+            x: centerX - 180,
+            y: centerY - 170,
+          },
+          bento: {
+            x: centerX - 180,
+            y: centerY - 170,
+          },
+        },
+        config: {
+          isSkillNode: true,
+          skillId: skill.id,
+          title: skill.name,
+          icon: skill.icon || "🧩",
+          prompt: "",
+        }
+      };
+
+      setHistory((prev) => [newSkillItem, ...prev]);
+      setSelectedHistoryId(newSkillItem.id);
+      setSelectedIds([]);
+      syncToCloud(newSkillItem);
+      setError(`已成功将【${skill.name}】插件添加至画布！`);
+      setIsCriticalError(false);
+    };
+
+    window.addEventListener('add-plugin-to-canvas', handleAddPluginToCanvas);
+    return () => {
+      window.removeEventListener('add-plugin-to-canvas', handleAddPluginToCanvas);
+    };
+  }, [transformState, activeCanvasId, setHistory]);
   const [layoutMode, setLayoutMode] = useState<
     "mindmap" | "bento" | "semi_auto"
   >(() => {
@@ -3700,7 +3834,9 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       setTimeout(() => {
         const inputElement = document.querySelector("textarea");
         inputElement?.focus();
-        inputElement?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (inputElement && typeof inputElement.scrollIntoView === "function") {
+          inputElement.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       }, 500);
     }
   }, [initialData, setImageConfig, setVideoConfig, setMode]);
@@ -4890,7 +5026,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     }
 
     const modelType = item.config?.modelType || "text";
-    const selectedModel = item.config?.selectedModel || "gemini-3.5-flash";
+    const selectedModel = item.config?.selectedModel || "gemini-1.5-pro";
 
     // 1. Mark node and downstream matching children as loading
     setHistory((prev) => {
@@ -5105,7 +5241,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       }
       executionPrompt += customPrompt || (modelType === "text" ? "请根据上游输入项进行创意发散、内容扩充或分析提炼。" : "");
 
-      // For image/video generation, we use an LLM (gemini-3.5-flash) to compile/synthesize the prompt
+      // For image/video generation, we use an LLM (gemini-1.5-pro) to compile/synthesize the prompt
       let synthesizedPrompt = executionPrompt;
       if (modelType === "image" || modelType === "video") {
         try {
@@ -5128,7 +5264,7 @@ ${executionPrompt}
             "script",
             "generateContent",
             {
-              model: "gemini-3.5-flash",
+              model: "gemini-1.5-pro",
               contents: [
                 {
                   role: "user",
@@ -5488,9 +5624,11 @@ ${executionPrompt}
       const nodeCustomPrompt = item.config?.prompt || "";
       
       // Extract any custom option settings
-      let parameterInstructions = "";
+      const systemPrompt = systemInstruction;
+      const sourceContents = parentInputsContext ? [parentInputsContext] : [];
+      let userPrompt = "";
       if (matchedSkill.customOptions && matchedSkill.customOptions.length > 0) {
-        parameterInstructions += "\n\n【当前节点参数设定】:\n";
+        userPrompt += "\n\n【当前节点参数设定】:\n";
         matchedSkill.customOptions.forEach((opt: any) => {
           let val = item.config?.[opt.id];
           if (val === undefined || val === null) {
@@ -5620,57 +5758,18 @@ ${executionPrompt}
                 "4": "4段分镜",
                 "6": "6段分镜",
                 "8": "8段分镜",
-                "12": "12段分镜"
+                "12": "12段分镜",
+                "16": "16段分镜"
               };
               val = map[val] || val;
             }
           }
-          // Translate standard keys for panorama
-          if (nodeSkillId === "panorama" && opt.id === "panoramaRatio") {
-            const map: Record<string, string> = {
-              "2:1": "🌅 2:1 标准广域全景",
-              "3:1": "🏞️ 3:1 电影级宽景全画幅"
-            };
-            val = map[val] || val;
-          }
-          // Translate standard keys for six-view
-          if (nodeSkillId === "six-view" && opt.id === "sixViewType") {
-            const map: Record<string, string> = {
-              "three": "📐 经典三视图 (正向/侧面/背面)",
-              "six": "🌐 专业六面环绕展示视图"
-            };
-            val = map[val] || val;
-          }
-          // Translate standard keys for storyboard
-          if (nodeSkillId === "storyboard" && opt.id === "storyboardSegments") {
-            const map: Record<string, string> = {
-              "4": "🔳 4格连贯连续镜头",
-              "6": "🔲 6格连贯连续镜头",
-              "8": "⚡ 8格连贯连续镜头"
-            };
-            val = map[val] || val;
-          }
-          // Translate standard keys for perspective-sim
-          if (nodeSkillId === "perspective-sim" && opt.id === "perspectiveFocalLength") {
-            const map: Record<string, string> = {
-              "24mm": "🎥 24mm 震撼广角",
-              "50mm": "👁️ 50mm 人眼标准",
-              "85mm": "👤 85mm 黄金人像特写"
-            };
-            val = map[val] || val;
-          }
-
-          parameterInstructions += `- ${opt.name}: ${val}\n`;
+          userPrompt += `- **${opt.label || opt.id}**: ${val}\n`;
         });
-        parameterInstructions += "\n请确保您的输出严格遵循上述设定的节点参数和规格要求。";
       }
 
-      const systemPrompt = `你是一位AI工作流链条节点执行器。你的角色设定是：${systemInstruction}\n\n你正在处理的是节点：【${skillName}】。${parameterInstructions}`;
-      
-      let userPrompt = "";
-      if (parentInputsContext) {
-        userPrompt += `上游输入数据如下：\n\n${parentInputsContext}`;
-        userPrompt += `请结合以上的输入内容，执行当前节点的自定义命令/提示词：\n`;
+      if (sourceContents && sourceContents.length > 0) {
+        userPrompt += `\n本节点收到了 ${sourceContents.length} 个上游输入源，请结合以下输入源的信息执行本次自定义命令/提示词：\n`;
       } else {
         userPrompt += `本节点当前无上游输入项。请直接执行以下命令：\n`;
       }
@@ -5681,7 +5780,7 @@ ${executionPrompt}
         "script",
         "generateContent",
         {
-          model: config.script.model || "gemini-3.5-flash",
+          model: config.script.model || "gemini-1.5-pro",
           contents: [
             {
               role: "user",
@@ -5851,76 +5950,99 @@ ${executionPrompt}
       console.warn("[syncToCloud] Error checking differences:", e);
     }
 
-    try {
-      let finalItem = {
-        ...item,
-        canvasId: item.canvasId || activeCanvasId,
-      };
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        let finalItem = {
+          ...item,
+          canvasId: item.canvasId || activeCanvasId,
+        };
 
-      // 1. If it's a blob URL, convert to base64 so the backend can upload to OSS
-      const mediaUrl = item.type === "video" ? item.videoUrl : item.imageUrl;
-      if (mediaUrl && mediaUrl.startsWith("blob:")) {
-        const res = await fetch(mediaUrl);
-        const blob = await res.blob();
-        const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve) => {
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-        const base64Data = await base64Promise;
+        // 1. If it's a blob URL, convert to base64 so the backend can upload to OSS
+        const mediaUrl = item.type === "video" ? item.videoUrl : item.imageUrl;
+        if (mediaUrl && mediaUrl.startsWith("blob:")) {
+          const res = await fetch(mediaUrl);
+          const blob = await res.blob();
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve) => {
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          const base64Data = await base64Promise;
 
-        if (item.type === "video") {
-          finalItem.videoUrl = base64Data;
-        } else {
-          finalItem.imageUrl = base64Data;
+          if (item.type === "video") {
+            finalItem.videoUrl = base64Data;
+          } else {
+            finalItem.imageUrl = base64Data;
+          }
         }
-      }
 
-      // 2. Save to MySQL (Backend will handle OSS upload if configured)
-      console.log(
-        `[DEBUG] Syncing task ${item.id} to cloud (status: ${item.status})...`,
-      );
-      const saveRes = await fetch("/api/user/history", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(finalItem),
-      });
-
-      if (saveRes.ok) {
-        const data = await safeJson(saveRes);
-        if (data && data.success) {
-          console.log(
-            `[DEBUG] Task ${item.id} synced successfully. OSS URL: ${data.ossUrl || "N/A"}`,
-          );
-          // Return item with updated OSS URLs if available
-          return {
-            ...item,
-            imageUrl: data.imageUrl || item.imageUrl,
-            videoUrl: data.videoUrl || item.videoUrl,
-            ossUrl: data.ossUrl || item.ossUrl,
-            arkOriginalUrl: data.arkOriginalUrl || item.arkOriginalUrl,
-            config: data.config || item.config,
-          };
-        }
-      } else {
-        const errorData = await safeJson(saveRes);
-        console.error(
-          `[DEBUG] Failed to sync task ${item.id} to cloud:`,
-          saveRes.status,
-          errorData,
+        // 2. Save to MySQL (Backend will handle OSS upload if configured)
+        console.log(
+          `[DEBUG] Syncing task ${item.id} to cloud (status: ${item.status}, attempt: ${attempts + 1})...`,
         );
+        const saveRes = await fetch("/api/user/history", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(finalItem),
+        });
+
+        if (saveRes.ok) {
+          const data = await safeJson(saveRes);
+          if (data && data.success) {
+            console.log(
+              `[DEBUG] Task ${item.id} synced successfully. OSS URL: ${data.ossUrl || "N/A"}`,
+            );
+            // Return item with updated OSS URLs if available
+            return {
+              ...item,
+              imageUrl: data.imageUrl || item.imageUrl,
+              videoUrl: data.videoUrl || item.videoUrl,
+              ossUrl: data.ossUrl || item.ossUrl,
+              arkOriginalUrl: data.arkOriginalUrl || item.arkOriginalUrl,
+              config: data.config || item.config,
+            };
+          }
+          break; // Exit loop if successful but no data.success
+        } else {
+          if (saveRes.status === 429) {
+            console.warn(`[DEBUG] Rate limited (429) on syncToCloud for task ${item.id}, retrying...`);
+            attempts++;
+            await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
+            continue;
+          }
+          
+          try {
+            const errorData = await saveRes.json();
+            console.error(
+              `[DEBUG] Failed to sync task ${item.id} to cloud:`,
+              saveRes.status,
+              errorData,
+            );
+          } catch (e) {
+            console.error(
+              `[DEBUG] Failed to sync task ${item.id} to cloud:`,
+              saveRes.status
+            );
+          }
+          break; // Exit loop for other errors
+        }
+      } catch (err: any) {
+        if (err.message && err.message.includes("429")) {
+          console.warn(`[DEBUG] Rate limited (429 Exception) on syncToCloud for task ${item.id}, retrying...`);
+          attempts++;
+          await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
+          continue;
+        }
+        console.error("Sync to cloud failed:", err);
+        break; // Exit loop
       }
-
-      return item;
-    } catch (err) {
-      console.error("Sync to cloud failed:", err);
-      return item;
     }
+    return item;
   };
-
   const parseCharactersFromScript = (text: string) => {
     const characters: any[] = [];
     if (!text || !text.includes("【角色资产】")) return characters;
@@ -6118,24 +6240,26 @@ ${executionPrompt}
               ? "音频"
               : item.type === "gen_script"
                 ? "剧本"
-                : "图片";
+                : "图";
 
         // Detect if title is an auto-generated scheme (or placeholder title)
         const isAutoTitle =
           !item.config?.title ||
-          /^(图片|视频|音频|剧本|正在上传.*)_\d+$/.test(item.config.title) ||
-          item.config.title.startsWith("图片_") ||
-          item.config.title.startsWith("视频_") ||
-          item.config.title.startsWith("音频_") ||
+          /^(图片|图|视频|音频|剧本|正在上传.*)[_\d]+$/.test(item.config.title) ||
+          item.config.title.startsWith("图片") ||
+          item.config.title.startsWith("图") ||
+          item.config.title.startsWith("视频") ||
+          item.config.title.startsWith("音频") ||
           item.config.title.startsWith("正在上传");
 
         let name = "";
         if (isAutoTitle) {
           const t = item.type;
           typeCounters[t] = (typeCounters[t] || 0) + 1;
-          name = `${defaultTitle}_${typeCounters[t]}`;
+          const displayPrefix = t === "image" ? "图" : defaultTitle;
+          name = `${displayPrefix}${typeCounters[t]}`;
         } else {
-          name = item.config?.title || `${defaultTitle}_${item.id.substring(item.id.length - 4)}`;
+          name = item.config?.title || `${defaultTitle}${item.id.substring(item.id.length - 4)}`;
         }
 
         const descriptionText =
@@ -8191,12 +8315,10 @@ ${prompt}
       const positioningParentId = activeParentId || pIdsArray[0];
 
       if (!position) {
-        // Prioritize active "draft_new" of type "image"
-        const activeDraft = null;
+        // Prioritize active "draft_new" of type "image" (do not shadow activeDraft)
         if (activeDraft && (activeDraft as any).position) {
-          posX = (activeDraft as any).position.x;
+          posX = (activeDraft as any).position.x + 400;
           posY = (activeDraft as any).position.y;
-          targetDraftIdToReplace = (activeDraft as any).id;
         } else if (layoutMode === "bento") {
           const nextPos = getNextGridPosition(history);
           posX = nextPos.x;
@@ -8254,10 +8376,7 @@ ${prompt}
       if (existingTask) {
         return prev.map((h) => h.id === taskId ? newTask : h);
       }
-      const filtered = targetDraftIdToReplace 
-        ? prev.filter((h) => h.id !== targetDraftIdToReplace)
-        : prev;
-      return [newTask, ...filtered];
+      return [newTask, ...prev];
     });
     setRemixParentId(null); // Reset parent ID track after creation
     setIsOptimized(false);
@@ -8706,12 +8825,10 @@ ${prompt}
       const positioningParentId = activeParentId || pIdsArray[0];
 
       if (!position) {
-        // Prioritize active "draft_new" of type "video"
-        const activeDraft = null;
+        // Prioritize active "draft_new" of type "video" (do not shadow activeDraft)
         if (activeDraft && (activeDraft as any).position) {
-          posX = (activeDraft as any).position.x;
+          posX = (activeDraft as any).position.x + 400;
           posY = (activeDraft as any).position.y;
-          targetDraftIdToReplace = (activeDraft as any).id;
         } else if (layoutMode === "bento") {
           const nextPos = getNextGridPosition(history);
           posX = nextPos.x;
@@ -8769,10 +8886,7 @@ ${prompt}
       if (existingTask) {
         return prev.map((h) => h.id === taskId ? newTask : h);
       }
-      const filtered = targetDraftIdToReplace 
-        ? prev.filter((h) => h.id !== targetDraftIdToReplace)
-        : prev;
-      return [newTask, ...filtered];
+      return [newTask, ...prev];
     });
     setRemixParentId(null); // Reset parent ID track after creation
     setIsOptimized(false);
@@ -8824,7 +8938,35 @@ ${prompt}
         }
       });
 
-      // Then, add mentioned assets from history only if they are explicitly in the current prompt
+       // Then, add mentioned assets from history only if they are explicitly in the current prompt (supports @label, [label], or raw label like 图1)
+      allMentionable.forEach((ref) => {
+        const label = ref.label; // e.g., "图1"
+        if (label && (
+          originalPromptText.includes(`@${label}`) ||
+          originalPromptText.includes(`[${label}]`) ||
+          originalPromptText.includes(label)
+        )) {
+          const type = (ref.type || "image") as "image" | "video" | "audio" | "character_asset" | "gen_script";
+          if (type === "character_asset" || type === "gen_script") return;
+
+          const data = ref.ossUrl || ref.imageUrl || ref.videoUrl || ref.audioUrl || ref.data || "";
+          if (data && !addedUrls.has(data)) {
+            let mimeType = "image/png";
+            if (type === "video") mimeType = "video/mp4";
+            else if (type === "audio") mimeType = "audio/mpeg";
+
+            finalReferenceAssets.push({
+              data,
+              thumbnailUrl: ref.imageUrl,
+              mimeType,
+              type: type as any,
+            });
+            addedUrls.add(data);
+          }
+        }
+      });
+
+      // Keep legacy @ parsing fallback for backwards compatibility
       matches.forEach((match) => {
         const labelWithoutAt = match[1];
         const ref = findAssetByLabel(allMentionable, labelWithoutAt);
@@ -8866,6 +9008,43 @@ ${prompt}
       const imageList = finalReferenceAssets.filter((a) => a.type === "image");
       const videoList = finalReferenceAssets.filter((a) => a.type === "video");
       const audioList = finalReferenceAssets.filter((a) => a.type === "audio");
+
+      // Map labels inside mappedPrompt even if they don't have "@" prefix (e.g. "[图1]" -> "@image1")
+      allMentionable.forEach((ref) => {
+        const label = ref.label; // e.g. "图1"
+        if (label && (
+          mappedPrompt.includes(`[${label}]`) ||
+          mappedPrompt.includes(`@${label}`) ||
+          mappedPrompt.includes(label)
+        )) {
+          const data = ref.ossUrl || ref.imageUrl || ref.videoUrl || ref.data;
+          if (ref.type === "video") {
+            const idx = videoList.findIndex((a) => a.data === data);
+            if (idx !== -1) {
+              mappedPrompt = mappedPrompt
+                .split(`[${label}]`).join(`@video${idx + 1}`)
+                .split(`@${label}`).join(`@video${idx + 1}`)
+                .split(label).join(`@video${idx + 1}`);
+            }
+          } else if (ref.type === "audio") {
+            const idx = audioList.findIndex((a) => a.data === data);
+            if (idx !== -1) {
+              mappedPrompt = mappedPrompt
+                .split(`[${label}]`).join(`@audio${idx + 1}`)
+                .split(`@${label}`).join(`@audio${idx + 1}`)
+                .split(label).join(`@audio${idx + 1}`);
+            }
+          } else {
+            const idx = imageList.findIndex((a) => a.data === data);
+            if (idx !== -1) {
+              mappedPrompt = mappedPrompt
+                .split(`[${label}]`).join(`@image${idx + 1}`)
+                .split(`@${label}`).join(`@image${idx + 1}`)
+                .split(label).join(`@image${idx + 1}`);
+            }
+          }
+        }
+      });
 
       matches.forEach((match) => {
         const fullLabel = match[0];
@@ -9230,12 +9409,11 @@ ${prompt}
             let promptDisplayText = seg.prompt
               .replace(/【空间结构】[^。！？\n]*[。！？\n]/g, "")
               .trim();
-            // 1. Remove [承接...] or [新起...] tags (with or without brackets)
+            // 1. Remove [承接...] or [新起...] tags safely without eating the rest of the text
             promptDisplayText = promptDisplayText
-              .replace(
-                /^\s*(?:\[?\s*(承接|新起)[\s\S]*?(?:\]|(?=镜头\d+)|$))/,
-                "",
-              )
+              .replace(/^\s*\[\s*(?:承接|新起)[\s\S]*?\]\s*/, "") // Strips [新起] or [新起 - 镜头1]
+              .replace(/^\s*(?:承接|新起)\s*-\s*镜头\d+[:：]?\s*/, "") // Strips "新起 - 镜头1:"
+              .replace(/^\s*(?:承接|新起)\b\s*/, "") // Strips "新起 "
               .trim();
 
             return `【分段 ${idx + 1} | 时长: ${seg.duration}】${charAssets}${sceneAssets}${propAssets}\n\n${promptDisplayText}`;
@@ -9250,10 +9428,9 @@ ${prompt}
               .trim();
             // Also strip technical meta-text in Director mode
             promptDisplayText = promptDisplayText
-              .replace(
-                /^\s*(?:\[?\s*(承接|新起)[\s\S]*?(?:\]|(?=镜头\d+)|$))/,
-                "",
-              )
+              .replace(/^\s*\[\s*(?:承接|新起)[\s\S]*?\]\s*/, "") // Strips [新起] or [新起 - 镜头1]
+              .replace(/^\s*(?:承接|新起)\s*-\s*镜头\d+[:：]?\s*/, "") // Strips "新起 - 镜头1:"
+              .replace(/^\s*(?:承接|新起)\b\s*/, "") // Strips "新起 "
               .trim();
 
             return `【第 ${idx + 1} 集 | ${seg.duration} | ${directorStyle}】\n\n${seg.plotAnchor}\n\n【导演分镜指导】\n${promptDisplayText}`;
@@ -9339,26 +9516,16 @@ ${prompt}
             setHistory((prev) => [segmentItem, ...prev]);
             setSelectedHistoryId(segmentItem.id);
           } else {
-            // Fallback for everything else
-            await Promise.all([
-              fetch("/api/user/history", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(assetItem),
-              }),
-              fetch("/api/user/history", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(segmentItem),
-              }),
-            ]);
-            setHistory((prev) => [segmentItem, assetItem, ...prev]);
+            // Fallback for everything else: only create segmentItem (no assetItem)
+            await fetch("/api/user/history", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify(segmentItem),
+            });
+            setHistory((prev) => [segmentItem, ...prev]);
             setSelectedHistoryId(segmentItem.id);
           }
           setImageConfig((prev) => ({ ...prev, prompt: "" }));
@@ -9665,7 +9832,11 @@ ${prompt}
         let formattedResult = pipelineData.segments
           .map((seg, idx) => {
             let promptDisplayText = seg.prompt.replace(/【空间结构】[^。！？\n]*[。！？\n]/g, "").trim();
-            promptDisplayText = promptDisplayText.replace(/^\s*(?:\[?\s*(承接|新起)[\s\S]*?(?:\]|(?=镜头\d+)|$))/, "").trim();
+            promptDisplayText = promptDisplayText
+              .replace(/^\s*\[\s*(?:承接|新起)[\s\S]*?\]\s*/, "") // Strips [新起] or [新起 - 镜头1]
+              .replace(/^\s*(?:承接|新起)\s*-\s*镜头\d+[:：]?\s*/, "") // Strips "新起 - 镜头1:"
+              .replace(/^\s*(?:承接|新起)\b\s*/, "") // Strips "新起 "
+              .trim();
             return `【分段 ${idx + 1} | 时长: ${seg.duration}】\n\n${promptDisplayText}`;
           })
           .join("\n\n" + "=".repeat(40) + "\n\n");
@@ -9826,7 +9997,11 @@ ${prompt}
             const sceneAssets = seg.assets?.scenes ? `\n场景资产：${formatAssetLine(seg.assets.scenes)}` : "";
             const propAssets = seg.assets?.props ? `\n道具资产：${formatAssetLine(seg.assets.props)}` : "";
             let promptDisplayText = seg.prompt.replace(/【空间结构】[^。！？\n]*[。！？\n]/g, "").trim();
-            promptDisplayText = promptDisplayText.replace(/^\s*(?:\[?\s*(承接|新起)[\s\S]*?(?:\]|(?=镜头\d+)|$))/, "").trim();
+            promptDisplayText = promptDisplayText
+              .replace(/^\s*\[\s*(?:承接|新起)[\s\S]*?\]\s*/, "") // Strips [新起] or [新起 - 镜头1]
+              .replace(/^\s*(?:承接|新起)\s*-\s*镜头\d+[:：]?\s*/, "") // Strips "新起 - 镜头1:"
+              .replace(/^\s*(?:承接|新起)\b\s*/, "") // Strips "新起 "
+              .trim();
             return `【分段 ${idx + 1} | 时长: ${seg.duration}】${charAssets}${sceneAssets}${propAssets}\n\n${promptDisplayText}`;
           })
           .join("\n\n" + "=".repeat(40) + "\n\n");
@@ -9834,7 +10009,11 @@ ${prompt}
         formattedResult = pipelineData.segments
           .map((seg, idx) => {
             let promptDisplayText = seg.prompt.replace(/【空间结构】[^。！？\n]*[。！？\n]/g, "").trim();
-            promptDisplayText = promptDisplayText.replace(/^\s*(?:\[?\s*(承接|新起)[\s\S]*?(?:\]|(?=镜头\d+)|$))/, "").trim();
+            promptDisplayText = promptDisplayText
+              .replace(/^\s*\[\s*(?:承接|新起)[\s\S]*?\]\s*/, "") // Strips [新起] or [新起 - 镜头1]
+              .replace(/^\s*(?:承接|新起)\s*-\s*镜头\d+[:：]?\s*/, "") // Strips "新起 - 镜头1:"
+              .replace(/^\s*(?:承接|新起)\b\s*/, "") // Strips "新起 "
+              .trim();
             return `【第 ${idx + 1} 集 | ${seg.duration} | ${directorStyle}】\n\n${seg.plotAnchor}\n\n【导演分镜指导】\n${promptDisplayText}`;
           })
           .join("\n\n" + "=".repeat(40) + "\n\n");
@@ -10212,65 +10391,106 @@ ${prompt}
     setTimeout(() => {
       const inputElement = document.querySelector("textarea");
       inputElement?.focus();
-      inputElement?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (inputElement && typeof inputElement.scrollIntoView === "function") {
+        inputElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     }, 150);
   };
 
   const handleApplyMode = (modeValue: string, item: HistoryItem) => {
-    setMode("image");
+    if (modeValue === "camera-control") {
+      const cat = getPluginCategory("camera-control");
+      setMode(cat === "image" ? "image" : "video");
+    } else {
+      setMode("image");
+    }
     setRemixParentId(item.id); // 创意延展建立连线
 
-    const targetMode = GRID_MODES.find((m) => m.value === modeValue);
+    let targetMode = GRID_MODES.find((m) => m.value === modeValue);
+    if (!targetMode && modeValue === "camera-control") {
+      targetMode = {
+        label: "相机调整",
+        value: "camera-control",
+        icon: null,
+        desc: "配置相机与镜头参数",
+        placeholder: "请输入镜头描述...",
+        prompt: "",
+      } as any;
+    }
     if (!targetMode) return;
 
     const modePrompt = targetMode.prompt || "";
 
-    setImageConfig((prev) => {
-      // 创意延展是一个全新的独立生成分支。因此我们需要彻底重置并清理之前的其他不相关参考图与参考词
-      let finalImages: any[] = [];
-      if (item.imageUrl) {
-        finalImages.push({
-          id: Math.random().toString(36).substring(2, 9),
-          data: item.imageUrl,
+    if (modeValue === "camera-control" && getPluginCategory("camera-control") === "video") {
+      setVideoConfig((prev) => {
+        const assetId = Math.random().toString(36).substring(2, 9);
+        const mediaData = item.imageUrl || item.ossUrl || item.videoUrl || "";
+        const newAsset = {
+          id: assetId,
+          data: mediaData,
           mimeType: "image/png",
-          type: "general",
+          type: "image" as const,
           historyId: item.id,
-        });
-      }
+        };
+        const rawPrompt = (item.config as any)?.prompt || item.revisedPrompt || "";
+        let targetPrompt = rawPrompt
+          .replace(/@图\d+/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        return {
+          ...prev,
+          prompt: targetPrompt,
+          referenceAssets: [newAsset],
+        };
+      });
+    } else {
+      setImageConfig((prev) => {
+        // 创意延展是一个全新的独立生成分支。因此我们需要彻底重置并清理之前的其他不相关参考图与参考词
+        let finalImages: any[] = [];
+        if (item.imageUrl) {
+          finalImages.push({
+            id: Math.random().toString(36).substring(2, 9),
+            data: item.imageUrl,
+            mimeType: "image/png",
+            type: "general",
+            historyId: item.id,
+          });
+        }
 
-      const refTag = `@图1`;
+        const refTag = `@图1`;
 
-      // 获取当前正在进行创意延展资产自身的提示词描述
-      const rawPrompt =
-        (item.config as any)?.prompt || item.revisedPrompt || "";
-      // 过滤掉原本可能残留的老图号（如：@图1, @图2 等）来避免和崭新的 @图1 标签混淆干扰，保留干净的用户原创意描述
-      let targetPrompt = rawPrompt
-        .replace(/@图\d+/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
+        // 获取当前正在进行创意延展资产自身的提示词描述
+        const rawPrompt =
+          (item.config as any)?.prompt || item.revisedPrompt || "";
+        // 过滤掉原本可能残留的老图号（如：@图1, @图2 等）来避免和崭新的 @图1 标签混淆干扰，保留干净的用户原创意描述
+        let targetPrompt = rawPrompt
+          .replace(/@图\d+/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
 
-      let newPrompt = "";
-      if (modeValue === "point-and-shoot") {
-        newPrompt = `${modePrompt} ${targetPrompt}`.trim();
-      } else if (modeValue === "panorama") {
-        const panPrompt =
-          "360度全景，等距柱状投影，无缝水平漫游，建筑写实摄影。场景：";
-        newPrompt = `${panPrompt}${targetPrompt}`;
-      } else {
-        newPrompt = `${modePrompt} ${targetPrompt}`.trim();
-      }
+        let newPrompt = "";
+        if (modeValue === "point-and-shoot") {
+          newPrompt = `${modePrompt} ${targetPrompt}`.trim();
+        } else if (modeValue === "panorama") {
+          const panPrompt =
+            "360度全景，等距柱状投影，无缝水平漫游，建筑写实摄影。场景：";
+          newPrompt = `${panPrompt}${targetPrompt}`;
+        } else {
+          newPrompt = `${modePrompt} ${targetPrompt}`.trim();
+        }
 
-      if (!newPrompt.includes(refTag)) {
-        newPrompt = newPrompt ? `${newPrompt} ${refTag}` : refTag;
-      }
+        if (!newPrompt.includes(refTag)) {
+          newPrompt = newPrompt ? `${newPrompt} ${refTag}` : refTag;
+        }
 
-      return {
-        ...prev,
-        gridMode: modeValue as any,
-        prompt: newPrompt,
-        referenceImages: finalImages,
-      };
-    });
+        return {
+          ...prev,
+          gridMode: modeValue === "camera-control" ? prev.gridMode : (modeValue as any),
+          prompt: newPrompt,
+          referenceImages: finalImages,
+        };
+      });
+    }
 
     if (modeValue === "point-and-shoot") {
       setShowPointAndShootEditor(true);
@@ -10278,6 +10498,8 @@ ${prompt}
       setIsPanoramaModalOpen(true);
     } else if (modeValue === "perspective-sim") {
       setShowPerspectiveSim(true);
+    } else if (modeValue === "camera-control") {
+      setShowCameraControl(true);
     }
 
     setTimeout(() => {
@@ -10285,7 +10507,9 @@ ${prompt}
         textareaRef.current || document.querySelector("textarea");
       if (textarea) {
         textarea.focus();
-        textarea.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (typeof textarea.scrollIntoView === "function") {
+          textarea.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       }
     }, 100);
 
@@ -10304,7 +10528,9 @@ ${prompt}
         const textarea = textareaRef.current;
         if (textarea) {
           textarea.focus();
-          textarea.scrollIntoView({ behavior: "smooth", block: "center" });
+          if (typeof textarea.scrollIntoView === "function") {
+            textarea.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
         }
       }, 100);
       return;
@@ -10410,7 +10636,9 @@ ${prompt}
     setTimeout(() => {
       const inputElement = document.querySelector("textarea");
       inputElement?.focus();
-      inputElement?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (inputElement && typeof inputElement.scrollIntoView === "function") {
+        inputElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     }, 100);
   };
 
@@ -11393,25 +11621,82 @@ ${prompt}
                               if (renderedPaths.has(pathKey)) return null;
                               renderedPaths.add(pathKey);
 
+                              const t = 0.5;
+                              const tM = 1 - t;
+                              const midX = (tM * tM * tM * startX) + (3 * tM * tM * t * (startX + controlOffset)) + (3 * tM * t * t * (endX - controlOffset)) + (t * t * t * endX);
+                              const midY = (tM * tM * tM * startY) + (3 * tM * tM * t * startY) + (3 * tM * t * t * endY) + (t * t * t * endY);
+
+                              const isLineSelected = selectedHistoryId === item.id || selectedHistoryId === parent.id || selectedIds.includes(item.id) || selectedIds.includes(parent.id);
+
                               return (
-                                <g key={pathKey}>
+                                <g key={pathKey} className="group/line pointer-events-auto">
+                                  {/* Wide invisible path for easier hovering */}
+                                  <path
+                                    d={pathD}
+                                    fill="none"
+                                    stroke="transparent"
+                                    strokeWidth="16"
+                                    className="cursor-pointer"
+                                  />
                                   {/* Ambient backing path */}
                                   <path
                                     d={pathD}
                                     fill="none"
-                                    stroke="rgba(255, 255, 255, 0.4)"
-                                    strokeWidth="4"
+                                    stroke={isLineSelected ? "rgba(244, 63, 94, 0.3)" : "rgba(255, 255, 255, 0.4)"}
+                                    strokeWidth="6"
                                     strokeLinecap="round"
+                                    className="transition-all duration-250 group-hover/line:stroke-rose-500/30"
                                   />
                                   {/* Main solid white path matching Figure 1 */}
                                   <path
                                     d={pathD}
                                     fill="none"
-                                    stroke="#ffffff"
-                                    strokeWidth="2.5"
+                                    stroke={isLineSelected ? "#f43f5e" : "#ffffff"}
+                                    strokeWidth={isLineSelected ? "3" : "2.5"}
                                     strokeLinecap="round"
-                                    className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+                                    className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-all duration-250 group-hover/line:stroke-rose-400"
                                   />
+
+                                  {/* Disconnect button at midpoint */}
+                                  <foreignObject
+                                    x={midX - 12}
+                                    y={midY - 12}
+                                    width={24}
+                                    height={24}
+                                    className="overflow-visible pointer-events-auto"
+                                  >
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setHistory((prev) =>
+                                          prev.map((h) => {
+                                            if (h.id === item.id) {
+                                              const nextParentIds = safeParseParentIds(h.parentId).filter((id) => id !== parent.id);
+                                              return {
+                                                ...h,
+                                                parentId: nextParentIds.join(","),
+                                                config: {
+                                                  ...h.config,
+                                                  referenceImages: (h.config?.referenceImages || []).filter((ref: any) => ref.historyId !== parent.id),
+                                                  referenceAssets: (h.config?.referenceAssets || []).filter((ref: any) => ref.historyId !== parent.id),
+                                                }
+                                              };
+                                            }
+                                            return h;
+                                          })
+                                        );
+                                      }}
+                                      className={cn(
+                                        "flex items-center justify-center w-6 h-6 rounded-full text-white shadow-lg transition-all duration-200 cursor-pointer group/btn",
+                                        isLineSelected
+                                          ? "opacity-100 scale-105 bg-rose-600 border border-rose-500 hover:bg-rose-700"
+                                          : "opacity-40 group-hover/line:opacity-100 scale-90 group-hover/line:scale-100 bg-zinc-950/90 border border-zinc-800 hover:border-rose-500 hover:bg-rose-600"
+                                      )}
+                                      title="取消此连线"
+                                    >
+                                      <X className="w-3.5 h-3.5 transition-transform group-hover/btn:rotate-90 duration-200" />
+                                    </button>
+                                  </foreignObject>
                                 </g>
                               );
                             })
@@ -11578,30 +11863,49 @@ ${prompt}
                             }
                           }}
                           onDragStart={() => setIsDraggingCard(true)}
-                          onDragEnd={(offset) => {
+                          onDragMove={(pos) => {
+                            const roundedX = Math.round(pos.x);
+                            const roundedY = Math.round(pos.y);
+
+                            setHistory((prev) =>
+                              prev.map((h) => {
+                                if (h.id === item.id) {
+                                  return {
+                                    ...h,
+                                    position: {
+                                      ...h.position,
+                                      x: roundedX,
+                                      y: roundedY,
+                                      customX: roundedX,
+                                      customY: roundedY,
+                                      [layoutMode]: { x: roundedX, y: roundedY },
+                                    },
+                                  };
+                                }
+                                return h;
+                              })
+                            );
+                          }}
+                          onDragEnd={(pos) => {
                             setIsDraggingCard(false);
-                            const currentScale = scaleRef.current;
-                            const newX =
-                              (item.position?.x || 0) + offset.x / currentScale;
-                            const newY =
-                              (item.position?.y || 0) + offset.y / currentScale;
-                            // Do not snap to grid, use smooth pixel coordinates
-                            const snappedX = Math.round(newX);
-                            const snappedY = Math.round(newY);
-
-                            const updatedItem = {
-                              ...item,
-                              position: {
-                                ...item.position,
-                                x: snappedX,
-                                y: snappedY,
-                                customX: snappedX,
-                                customY: snappedY,
-                                [layoutMode]: { x: snappedX, y: snappedY },
-                              },
-                            };
-
+                            
                             setHistory((prev) => {
+                              const currentItemInState = prev.find((h) => h.id === item.id);
+                              const finalX = currentItemInState?.position?.x ?? Math.round(pos.x);
+                              const finalY = currentItemInState?.position?.y ?? Math.round(pos.y);
+
+                              const updatedItem = {
+                                ...item,
+                                position: {
+                                  ...item.position,
+                                  x: finalX,
+                                  y: finalY,
+                                  customX: finalX,
+                                  customY: finalY,
+                                  [layoutMode]: { x: finalX, y: finalY },
+                                },
+                              };
+
                               const updated = prev.map((h) =>
                                 h.id === item.id ? updatedItem : h,
                               );
@@ -11775,7 +12079,7 @@ ${prompt}
                             }
                           }}
                         />
-                        {selectedHistoryId === item.id && !isDraggingCard && item.status === "draft_new" && (item.type === "image" || item.type === "video") && (
+                        {selectedHistoryId === item.id && !isDraggingCard && !item.config?.isPipelineNode && item.status === "draft_new" && (item.type === "image" || item.type === "video") && (
                           <div
                             className="absolute z-[100] no-canvas-intercept"
                             style={{
@@ -11816,10 +12120,11 @@ ${prompt}
                               showPointAndShootEditor={showPointAndShootEditor}
                               setShowPointAndShootEditor={setShowPointAndShootEditor}
                               customModels={customModels}
+                              config={config}
                             />
                           </div>
                         )}
-                        {selectedHistoryId === item.id && !isDraggingCard && item.type === "gen_script" && (!item.revisedPrompt || item.revisedPrompt.trim() === "") && (
+                        {selectedHistoryId === item.id && !isDraggingCard && !item.config?.isPipelineNode && item.type === "gen_script" && (!item.revisedPrompt || item.revisedPrompt.trim() === "") && (
                           <div
                             className="absolute z-[100] no-canvas-intercept"
                             style={{
@@ -11843,10 +12148,11 @@ ${prompt}
                               userPoints={userPoints}
                               onClose={() => setSelectedHistoryId(null)}
                               localTextModel={localTextModel}
-                              setLocalTextModel={setLocalTextModel}
+                              setLocalTextModel={handleSelectTextModel}
                               customModels={customModels}
                               workflowSkills={workflowSkills}
                               removedSystemSkillIds={removedSystemSkillIds}
+                              config={config}
                             />
                           </div>
                         )}
@@ -12016,7 +12322,7 @@ ${prompt}
               key="expanded-card"
               className="w-full h-full bg-white border-l border-slate-150/80 flex flex-col shadow-[-16px_0_40px_rgba(0,0,0,0.06)] pointer-events-auto relative overflow-hidden"
               initial={{ x: "100%" }}
-              animate={{ x: 0 }}
+              animate={{ x: 0, transitionEnd: { transform: "none" } }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 30, stiffness: 220 }}
             >
@@ -12084,7 +12390,7 @@ ${prompt}
                       refundPoints={refundPoints}
                       isActive={!isCollabCollapsed}
                       initialMaterial={localForwardMaterial}
-                      onClearInitialMaterial={() => setLocalForwardMaterial(null)}
+                      onClearInitialMaterial={handleClearInitialMaterial}
                       onNavigate={onNavigate}
                       setHistory={setHistory}
                       hideInput={true}
@@ -13393,11 +13699,26 @@ ${prompt}
                                   ? directorConfig.generationMode
                                   : scriptConfig.activeSubTab;
 
+                              const activeSkillId = isCollabModeActive
+                                ? collabAiSkill
+                                : (mode === "director"
+                                  ? (directorConfig.generationMode === "prompt" ? "prompt-skill" : directorConfig.generationMode === "asset_prompt" ? "asset-prompt-skill" : "shot-prompt-skill")
+                                  : (scriptConfig.activeSubTab === "create" ? "create-script" : scriptConfig.activeSubTab === "analyze" ? "analyze-script" : scriptConfig.activeSubTab === "video" ? "video-dissect" : "rewrite-script"));
+
+                              const normActiveId = activeSkillId === "createScript" ? "create-script" :
+                                                   activeSkillId === "analyzeScript" ? "analyze-script" :
+                                                   activeSkillId === "rewriteScript" ? "rewrite-script" :
+                                                   activeSkillId === "videoDissect" ? "video-dissect" :
+                                                   activeSkillId === "promptSkill" ? "prompt-skill" :
+                                                   activeSkillId === "assetPromptSkill" ? "asset-prompt-skill" :
+                                                   activeSkillId === "shotPromptSkill" ? "shot-prompt-skill" : activeSkillId;
+
+                              const activeSkill = workflowSkills.find(s => s.id === normActiveId || s.id === activeSkillId || s.id === activeSkillId?.replace(/Skill$/, "-skill"));
+                              if (activeSkill && activeSkill.icon) {
+                                return <span className="text-xs leading-none">{activeSkill.icon}</span>;
+                              }
+
                               if (activeId === "xiaoluo_ai") {
-                                const activeSkill = workflowSkills.find(s => s.id === collabAiSkill || s.id === collabAiSkill?.replace(/Skill$/, "-skill"));
-                                if (activeSkill && activeSkill.icon) {
-                                  return <span className="text-xs leading-none">{activeSkill.icon}</span>;
-                                }
                                 return <Bot className="w-3.5 h-3.5 text-blue-500" />;
                               }
                               if (activeId === "create") return <PenTool className="w-3.5 h-3.5 text-amber-500" />;
@@ -13412,38 +13733,46 @@ ${prompt}
                             <span>
                               技能{" "}
                               {isCollabModeActive
-                                ? ((collabAiSkill === "createScript" || collabAiSkill === "create-script")
-                                  ? "创作剧本"
-                                  : (collabAiSkill === "analyzeScript" || collabAiSkill === "analyze-script")
-                                    ? "分析剧本"
-                                    : (collabAiSkill === "videoDissect" || collabAiSkill === "video-dissect")
-                                      ? "影音拉片"
-                                      : (collabAiSkill === "rewriteScript" || collabAiSkill === "rewrite-script")
-                                        ? "改写剧本"
-                                        : (collabAiSkill === "promptSkill" || collabAiSkill === "prompt-skill")
-                                          ? "提示词"
-                                          : (collabAiSkill === "assetPromptSkill" || collabAiSkill === "asset-prompt-skill" || collabAiSkill === "asset_prompt")
-                                            ? "资产提示词"
-                                            : (collabAiSkill === "shotPromptSkill" || collabAiSkill === "shot-prompt-skill" || collabAiSkill === "shot_prompt")
-                                              ? "分镜提示词"
-                                              : collabAiSkill === "general"
-                                                ? "意图引导"
-                                                : (workflowSkills.find(s => s.id === collabAiSkill || s.id === collabAiSkill?.replace(/Skill$/, "-skill"))?.name || "意图引导"))
-                                : mode === "director"
-                                  ? (directorConfig.generationMode === "prompt"
-                                    ? "提示词"
-                                    : directorConfig.generationMode === "asset_prompt"
-                                      ? "资产提示词"
-                                      : directorConfig.generationMode === "shot_prompt"
-                                        ? "分镜提示词"
-                                        : "提示词")
-                                  : scriptConfig.activeSubTab === "create"
-                                    ? "创作剧本"
-                                    : scriptConfig.activeSubTab === "analyze"
-                                      ? "分析剧本"
-                                      : scriptConfig.activeSubTab === "video"
-                                        ? "影音拉片"
-                                        : "改写剧本"}
+                                ? (() => {
+                                    const matched = workflowSkills.find(s => {
+                                      const normCollabId = collabAiSkill === "createScript" ? "create-script" :
+                                                           collabAiSkill === "analyzeScript" ? "analyze-script" :
+                                                           collabAiSkill === "rewriteScript" ? "rewrite-script" :
+                                                           collabAiSkill === "videoDissect" ? "video-dissect" :
+                                                           collabAiSkill === "promptSkill" ? "prompt-skill" :
+                                                           collabAiSkill === "assetPromptSkill" ? "asset-prompt-skill" :
+                                                           collabAiSkill === "shotPromptSkill" ? "shot-prompt-skill" : collabAiSkill;
+                                      return s.id === normCollabId || s.id === collabAiSkill || s.id === collabAiSkill?.replace(/Skill$/, "-skill");
+                                    });
+                                    if (matched) return matched.name;
+
+                                    if (collabAiSkill === "createScript" || collabAiSkill === "create-script") return "创作剧本";
+                                    if (collabAiSkill === "analyzeScript" || collabAiSkill === "analyze-script") return "分析剧本";
+                                    if (collabAiSkill === "videoDissect" || collabAiSkill === "video-dissect") return "影音拉片";
+                                    if (collabAiSkill === "rewriteScript" || collabAiSkill === "rewrite-script") return "改写剧本";
+                                    if (collabAiSkill === "promptSkill" || collabAiSkill === "prompt-skill") return "提示词";
+                                    if (collabAiSkill === "assetPromptSkill" || collabAiSkill === "asset-prompt-skill" || collabAiSkill === "asset_prompt") return "资产提示词";
+                                    if (collabAiSkill === "shotPromptSkill" || collabAiSkill === "shot-prompt-skill" || collabAiSkill === "shot_prompt") return "分镜提示词";
+                                    if (collabAiSkill === "general") return "意图引导";
+                                    return "意图引导";
+                                  })()
+                                : (() => {
+                                    const activeId = mode === "director"
+                                      ? (directorConfig.generationMode === "prompt" ? "prompt-skill" : directorConfig.generationMode === "asset_prompt" ? "asset-prompt-skill" : "shot-prompt-skill")
+                                      : (scriptConfig.activeSubTab === "create" ? "create-script" : scriptConfig.activeSubTab === "analyze" ? "analyze-script" : scriptConfig.activeSubTab === "video" ? "video-dissect" : "rewrite-script");
+                                    const matched = workflowSkills.find(s => s.id === activeId);
+                                    if (matched) return matched.name;
+
+                                    if (mode === "director") {
+                                      return directorConfig.generationMode === "prompt" ? "提示词" :
+                                             directorConfig.generationMode === "asset_prompt" ? "资产提示词" :
+                                             directorConfig.generationMode === "shot_prompt" ? "分镜提示词" : "提示词";
+                                    } else {
+                                      return scriptConfig.activeSubTab === "create" ? "创作剧本" :
+                                             scriptConfig.activeSubTab === "analyze" ? "分析剧本" :
+                                             scriptConfig.activeSubTab === "video" ? "影音拉片" : "改写剧本";
+                                    }
+                                  })()}
                             </span>
                             <ChevronDown
                               className={cn(
@@ -13475,17 +13804,46 @@ ${prompt}
                                       } else {
                                         // 灵境创生 mode: show all text/script skills (transferred)
                                         const baseItems = [];
+                                        const createDbSkill = workflowSkills.find(s => s.id === "create-script" || s.id === "createScript");
+                                        const analyzeDbSkill = workflowSkills.find(s => s.id === "analyze-script" || s.id === "analyzeScript");
+                                        const rewriteDbSkill = workflowSkills.find(s => s.id === "rewrite-script" || s.id === "rewriteScript");
+                                        const videoDbSkill = workflowSkills.find(s => s.id === "video-dissect" || s.id === "videoDissect");
+
                                         if (!removedSystemSkillIds.includes("create-script")) {
-                                          baseItems.push({ id: "createScript", name: "创作剧本", icon: PenTool, isSystem: true, emoji: null });
+                                          baseItems.push({
+                                            id: "createScript",
+                                            name: createDbSkill?.name || "创作剧本",
+                                            icon: PenTool,
+                                            isSystem: true,
+                                            emoji: createDbSkill?.icon || null
+                                          });
                                         }
                                         if (!removedSystemSkillIds.includes("analyze-script")) {
-                                          baseItems.push({ id: "analyzeScript", name: "分析剧本", icon: Layout, isSystem: true, emoji: null });
+                                          baseItems.push({
+                                            id: "analyzeScript",
+                                            name: analyzeDbSkill?.name || "分析剧本",
+                                            icon: Layout,
+                                            isSystem: true,
+                                            emoji: analyzeDbSkill?.icon || null
+                                          });
                                         }
                                         if (!removedSystemSkillIds.includes("rewrite-script")) {
-                                          baseItems.push({ id: "rewriteScript", name: "改写剧本", icon: RefreshCw, isSystem: true, emoji: null });
+                                          baseItems.push({
+                                            id: "rewriteScript",
+                                            name: rewriteDbSkill?.name || "改写剧本",
+                                            icon: RefreshCw,
+                                            isSystem: true,
+                                            emoji: rewriteDbSkill?.icon || null
+                                          });
                                         }
                                         if (!removedSystemSkillIds.includes("video-dissect")) {
-                                          baseItems.push({ id: "videoDissect", name: "影音拉片", icon: Video, isSystem: true, emoji: null });
+                                          baseItems.push({
+                                            id: "videoDissect",
+                                            name: videoDbSkill?.name || "影音拉片",
+                                            icon: Video,
+                                            isSystem: true,
+                                            emoji: videoDbSkill?.icon || null
+                                          });
                                         }
 
                                         const customTextItems = workflowSkills
@@ -13533,6 +13891,48 @@ ${prompt}
                                     const baseItems = [
                                       { id: "xiaoluo_ai", name: "意图引导", icon: Bot, isSystem: true, emoji: null },
                                     ];
+                                    const createDbSkill = workflowSkills.find(s => s.id === "create-script" || s.id === "createScript");
+                                    const analyzeDbSkill = workflowSkills.find(s => s.id === "analyze-script" || s.id === "analyzeScript");
+                                    const rewriteDbSkill = workflowSkills.find(s => s.id === "rewrite-script" || s.id === "rewriteScript");
+                                    const videoDbSkill = workflowSkills.find(s => s.id === "video-dissect" || s.id === "videoDissect");
+
+                                    if (!removedSystemSkillIds.includes("create-script")) {
+                                      baseItems.push({
+                                        id: "createScript",
+                                        name: createDbSkill?.name || "创作剧本",
+                                        icon: PenTool,
+                                        isSystem: true,
+                                        emoji: createDbSkill?.icon || null
+                                      });
+                                    }
+                                    if (!removedSystemSkillIds.includes("analyze-script")) {
+                                      baseItems.push({
+                                        id: "analyzeScript",
+                                        name: analyzeDbSkill?.name || "分析剧本",
+                                        icon: Layout,
+                                        isSystem: true,
+                                        emoji: analyzeDbSkill?.icon || null
+                                      });
+                                    }
+                                    if (!removedSystemSkillIds.includes("rewrite-script")) {
+                                      baseItems.push({
+                                        id: "rewriteScript",
+                                        name: rewriteDbSkill?.name || "改写剧本",
+                                        icon: RefreshCw,
+                                        isSystem: true,
+                                        emoji: rewriteDbSkill?.icon || null
+                                      });
+                                    }
+                                    if (!removedSystemSkillIds.includes("video-dissect")) {
+                                      baseItems.push({
+                                        id: "videoDissect",
+                                        name: videoDbSkill?.name || "影音拉片",
+                                        icon: Video,
+                                        isSystem: true,
+                                        emoji: videoDbSkill?.icon || null
+                                      });
+                                    }
+
                                     const customTextItems = workflowSkills
                                       .filter(s => {
                                         const isRemoved = removedSystemSkillIds.includes(s.id) || 
@@ -13553,14 +13953,14 @@ ${prompt}
                                           s.id !== "analyzeScript" && 
                                           s.id !== "videoDissect" && 
                                           s.id !== "rewriteScript" && 
-                                          s.id !== "promptSkill";
+                                          s.id !== "promptSkill" &&
+                                          s.id !== "create-script" &&
+                                          s.id !== "analyze-script" &&
+                                          s.id !== "rewrite-script" &&
+                                          s.id !== "video-dissect";
                                       })
                                       .map(s => {
                                         let icon = Sparkles;
-                                        if (s.id === "create-script" || s.id === "createScript") icon = PenTool;
-                                        if (s.id === "analyze-script" || s.id === "analyzeScript") icon = Layout;
-                                        if (s.id === "rewrite-script" || s.id === "rewriteScript") icon = RefreshCw;
-                                        if (s.id === "video-dissect" || s.id === "videoDissect") icon = Video;
                                         if (s.id === "asset-prompt-skill" || s.id === "assetPromptSkill" || s.id === "asset_prompt") icon = Box;
                                         if (s.id === "shot-prompt-skill" || s.id === "shotPromptSkill" || s.id === "shot_prompt") icon = Film;
                                         return {
@@ -14049,7 +14449,10 @@ ${prompt}
                             /* Loop through any customOptions of the active skill */
                             if (activeSkillObj.customOptions && activeSkillObj.customOptions.length > 0) {
                               return activeSkillObj.customOptions.map((opt: any) => {
-                                const currentVal = getOptionValue(activeSkillObj.id, opt);
+                                let currentVal = getOptionValue(activeSkillObj.id, opt);
+                                if (typeof currentVal === "object" && currentVal !== null) {
+                                  currentVal = currentVal.label || currentVal.name || currentVal.id || JSON.stringify(currentVal);
+                                }
                                 const isOpen = activeDropdownId === `${activeSkillObj.id}_${opt.id}`;
                                 return (
                                   <div key={opt.id} className="relative">
@@ -14381,11 +14784,11 @@ ${prompt}
                         <Cpu className="w-3.5 h-3.5 text-indigo-500 mr-1.5" />
                         <span className="text-[10px] text-indigo-400 mr-1 select-none font-bold">模型:</span>
                         <span className="text-[11px] font-bold text-indigo-600 mr-1">
-                          {localTextModel === "gemini-3.5-flash"
-                            ? "Gemini 3.5 Flash"
-                            : localTextModel === "claude-sonnet-5"
-                              ? "Claude-sonnet-5"
-                              : (customModels.find(m => m.model === localTextModel)?.name || localTextModel)
+                          {localTextModel === "gemini-3.5-flash" && (!config?.script?.model || config?.script?.model === "gemini-3.5-flash")
+                            ? (config?.script?.displayName || "Gemini 3.5 Flash")
+                            : (localTextModel?.toLowerCase() === "claude-sonnet-5" || localTextModel === "Claude-sonnet-5") && (!config?.claudeSonnet?.model || config?.claudeSonnet?.model?.toLowerCase() === "claude-sonnet-5" || config?.claudeSonnet?.model === "Claude-sonnet-5")
+                              ? (config?.claudeSonnet?.displayName || "Claude-sonnet-5")
+                              : (customModels.find(m => m.model === localTextModel)?.name || (localTextModel === config?.script?.model && config?.script?.displayName ? config.script.displayName : (localTextModel === config?.claudeSonnet?.model && config?.claudeSonnet?.displayName ? config.claudeSonnet.displayName : localTextModel)))
                           }
                         </span>
                         <ChevronDown
@@ -14410,22 +14813,39 @@ ${prompt}
                               className="absolute bottom-full mb-2 left-0 z-50 w-44 bg-white rounded-2xl shadow-2xl border border-indigo-100 p-1 flex flex-col gap-1 max-h-60 overflow-y-auto custom-scrollbar"
                             >
                               {(() => {
-                                const baseTextModels = [
-                                  {
-                                    id: "gemini-3.5-flash",
-                                    name: "Gemini 3.5 Flash (推荐)",
-                                    icon: Cpu,
-                                  },
-                                  {
-                                    id: "claude-sonnet-5",
-                                    name: "Claude-sonnet-5",
-                                    icon: Cpu,
-                                  }
-                                ];
-                                const customTextModels = customModels
-                                  .filter((m: any) => m.type === "text" || m.type === "all" || !m.type)
-                                  .map((m: any, idx: number) => ({
-                                    id: m.model || m.id || m.name || `custom-text-${idx}`,
+                                // Dynamic text models from config
+                                const dynamicTextModels: { id: string; name: string; icon: any }[] = [];
+                                if (config) {
+                                  const keys: (keyof Config)[] = ['script', 'image', 'video', 'videoSeedance', 'videoSeedanceMini', 'gptImage', 'claudeSonnet'];
+                                  keys.forEach(key => {
+                                    const section = config[key];
+                                    if (section && section.model) {
+                                      let isTypeMatch = section.modelType === 'text';
+                                      if (!section.modelType) {
+                                        isTypeMatch = (key === 'script' || key === 'claudeSonnet');
+                                      }
+                                      if (isTypeMatch) {
+                                        const defaultLabel = key === 'script' ? 'Gemini 3.5 Flash' :
+                                                             key === 'claudeSonnet' ? 'Claude-sonnet-5' : section.model;
+                                        dynamicTextModels.push({
+                                          id: section.model,
+                                          name: section.displayName || defaultLabel,
+                                          icon: Cpu
+                                        });
+                                      }
+                                    }
+                                  });
+                                } else {
+                                  dynamicTextModels.push(
+                                    { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", icon: Cpu },
+                                    { id: "claude-sonnet-5", name: "Claude-sonnet-5", icon: Cpu }
+                                  );
+                                }
+
+                                const customTextModels = (customModels || [])
+                                  .filter((m: any) => m.type === "text" || m.type === "all" || !m.type || m.modelType === "text")
+                                  .map((m: any) => ({
+                                    id: m.model,
                                     name: m.name || m.model || "Unnamed Model",
                                     icon: Cpu,
                                     endpoint: m.endpoint,
@@ -14433,29 +14853,14 @@ ${prompt}
                                     provider: m.provider || 'Third Party',
                                     path: m.path,
                                   }));
-                                return [...baseTextModels, ...customTextModels]
+
+                                return [...dynamicTextModels, ...customTextModels]
                                   .filter((v, i, self) => self.findIndex(t => t.id === v.id) === i);
                               })().map((m: any) => (
                                 <button
                                   key={m.id}
                                   onClick={() => {
-                                    if (config && config.script) {
-                                      config.script.model = m.id;
-                                      if (m.endpoint) {
-                                        config.script.endpoint = m.endpoint;
-                                        config.script.apiKey = m.apiKey || '';
-                                        config.script.provider = m.provider || 'Third Party';
-                                        config.script.path = m.path || '/v1/chat/completions';
-                                        config.script.protocolType = 'openai';
-                                      } else if (initialConfigScriptRef.current) {
-                                        config.script.endpoint = initialConfigScriptRef.current.endpoint;
-                                        config.script.apiKey = initialConfigScriptRef.current.apiKey;
-                                        config.script.provider = initialConfigScriptRef.current.provider;
-                                        config.script.path = initialConfigScriptRef.current.path;
-                                        config.script.protocolType = initialConfigScriptRef.current.protocolType;
-                                      }
-                                    }
-                                    setLocalTextModel(m.id);
+                                    handleSelectTextModel(m.id);
                                     setShowAiAssistantModelMenu(false);
                                   }}
                                   className={cn(
@@ -14477,19 +14882,50 @@ ${prompt}
                   )}
 
                   {mode === "image" && !isCollabModeActive && (() => {
+                    // Dynamic image models from config
+                    const dynamicImageModels: { label: string; value: string }[] = [];
+                    if (config) {
+                      const keys: (keyof Config)[] = ['script', 'image', 'video', 'videoSeedance', 'videoSeedanceMini', 'gptImage', 'claudeSonnet'];
+                      keys.forEach(key => {
+                        const section = config[key];
+                        if (section && section.model) {
+                          let isTypeMatch = section.modelType === 'image';
+                          if (!section.modelType) {
+                            isTypeMatch = (key === 'image' || key === 'gptImage');
+                          }
+                          if (isTypeMatch) {
+                            const defaultLabel = key === 'image' ? 'nano banana 2' : (key === 'gptImage' ? 'GPT-Image-2' : section.model);
+                            dynamicImageModels.push({
+                              label: section.displayName || defaultLabel,
+                              value: section.model
+                            });
+                          }
+                        }
+                      });
+                    } else {
+                      dynamicImageModels.push(
+                        { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
+                        { label: "GPT-Image-2", value: "gpt-image-2" }
+                      );
+                    }
+
+                    const customImageModels = (customModels || [])
+                      .filter((m: any) => m.type === "image" || m.type === "all" || m.modelType === "image")
+                      .map((m: any) => ({
+                        label: m.name || m.model,
+                        value: m.model,
+                      }));
+
                     const allAvailableModels = [
-                      ...IMAGE_MODELS,
-                      ...customModels
-                        .filter((m: any) => m.type === "image" || m.type === "all")
-                        .map((m: any) => ({
-                          label: m.name || m.model,
-                          value: m.model,
-                        }))
-                    ];
-                    const visibleModels = allAvailableModels
-                      .filter(m => pinnedModels.includes(m.value) || customModels.some(cm => cm.model === m.value))
-                      .filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
-                    const activeModelToShow = allAvailableModels.find(m => m.value === (imageConfig?.model || "gemini-3.1-flash-image-preview"))?.label || "nano banana 2";
+                      ...dynamicImageModels,
+                      ...customImageModels
+                    ].filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
+
+                    const visibleModels = allAvailableModels;
+                    const targetModelVal = (imageConfig?.model === "gemini-3.1-flash-image-preview" || !imageConfig?.model)
+                      ? (config?.image?.model || "gemini-3.1-flash-image-preview")
+                      : imageConfig.model;
+                    const activeModelToShow = allAvailableModels.find(m => m.value === targetModelVal)?.label || config?.image?.displayName || imageConfig?.model || "nano banana 2";
                     return (
                       <>
 
@@ -14780,7 +15216,7 @@ ${prompt}
                                           },
                                           isSelected: !!cameraParams,
                                         }
-                                      ].filter(p => getPluginCategory(p.id) === 'image');
+                                      ].filter(p => getPluginCategory(p.id) === 'image' && selectedPluginIds.includes(p.id));
 
                                       if (imagePlugins.length === 0) {
                                         return (
@@ -14919,7 +15355,9 @@ ${prompt}
                                       }}
                                       className={cn(
                                         "w-full px-3 py-2 rounded-lg text-[10px] font-bold text-left transition-colors",
-                                        imageConfig?.model === m.value
+                                        (imageConfig?.model === m.value ||
+                                         ((imageConfig?.model || "gemini-3.1-flash-image-preview") === "gemini-3.1-flash-image-preview" &&
+                                          m.value === (config?.image?.model || "gemini-3.1-flash-image-preview")))
                                           ? "bg-indigo-50 text-indigo-600"
                                           : "hover:bg-gray-50 text-gray-500",
                                       )}
@@ -15424,7 +15862,7 @@ ${prompt}
                                         },
                                         isSelected: !!cameraParams,
                                       }
-                                    ].filter(p => getPluginCategory(p.id) === "video");
+                                    ].filter(p => getPluginCategory(p.id) === "video" && selectedPluginIds.includes(p.id));
 
                                     if (videoPlugins.length === 0) {
                                       return (
@@ -15491,14 +15929,40 @@ ${prompt}
                       {/* Video Model Selection */}
                       <div className="relative">
                         {(() => {
-                          const customVideoModels = customModels
-                            .filter((m: any) => m.type === "video" || m.type === "all")
-                            .map((m: any, idx: number) => ({
+                          // Dynamic video models from config
+                          const dynamicVideoModels: { label: string; value: string }[] = [];
+                          if (config) {
+                            const keys: (keyof Config)[] = ['videoSeedance', 'videoSeedanceMini'];
+                            keys.forEach(key => {
+                              const section = config[key];
+                              if (section && section.model) {
+                                const defaultLabel = key === 'videoSeedance' ? 'RH-SD2.0' :
+                                                     key === 'videoSeedanceMini' ? 'RH-SD2.0mini' : section.model;
+                                dynamicVideoModels.push({
+                                  label: section.displayName || defaultLabel,
+                                  value: section.model
+                                });
+                              }
+                            });
+                          } else {
+                            dynamicVideoModels.push(
+                              { label: "RH-SD2.0", value: "seedance2.0" },
+                              { label: "RH-SD2.0mini", value: "seedance-mini" },
+                              { label: "SD.25即将上线", value: "seedance2.5" }
+                            );
+                          }
+
+                          const customVideoModels = (customModels || [])
+                            .filter((m: any) => m.type === "video" || m.type === "all" || m.modelType === "video")
+                            .map((m: any) => ({
                               label: m.name || m.model || "Unnamed Video Model",
-                              value: m.model || m.id || m.name || `custom-video-${idx}`,
+                              value: m.model,
                             }));
-                          const allVideoModels = [...VIDEO_MODELS, ...customVideoModels]
-                            .filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
+
+                          const allVideoModels = [
+                            ...dynamicVideoModels,
+                            ...customVideoModels
+                          ].filter((v, i, self) => self.findIndex(t => t.value === v.value) === i);
                           const activeModelLabel = allVideoModels.find((m) => m.value === (videoConfig?.model || "seedance2.0"))?.label || videoConfig?.model || "seedance2.0";
                           return (
                             <>
@@ -16723,6 +17187,91 @@ ${prompt}
               <Film className="w-4 h-4 text-zinc-400 group-hover:text-purple-400" />
               <span>新建视频生成卡片</span>
             </button>
+
+            {/* Submenu Trigger: 添加 AI 插件卡片 */}
+            <div
+              className="relative w-full"
+              onMouseEnter={() => setHoveredContextItem("plugin")}
+              onMouseLeave={() => setHoveredContextItem(null)}
+            >
+              <div className="w-full text-left px-3 py-2 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-xl transition-all flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center space-x-2.5">
+                  <Puzzle className="w-4 h-4 text-zinc-400 group-hover:text-amber-400" />
+                  <span>添加 AI 插件卡片</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-300" />
+              </div>
+
+              {/* Submenu popup panel for plugins */}
+              <AnimatePresence>
+                {hoveredContextItem === "plugin" && (
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute top-0 left-full ml-1 w-[220px] max-h-[300px] overflow-y-auto bg-zinc-900 rounded-xl border border-zinc-800 shadow-[0_8px_30px_rgba(0,0,0,0.5)] p-1 flex flex-col z-[10000] custom-scrollbar"
+                  >
+                    {PLUGINS.filter((skill) => selectedPluginIds.includes(skill.id)).map((skill) => (
+                      <button
+                        key={skill.id}
+                        onClick={() => {
+                          const timestamp = Date.now();
+                          const newSkillItem: HistoryItem = {
+                            id: `skill-${timestamp}`,
+                            type: "gen_script",
+                            status: "success",
+                            parentId: contextMenu.arrowDragSourceIds ? contextMenu.arrowDragSourceIds.join(",") : "",
+                            revisedPrompt: skill.instruction || `【${skill.name}】插件节点已就绪。连接上游节点并点击下方执行。`,
+                            timestamp: timestamp,
+                            canvasId: activeCanvasId,
+                            position: {
+                              x: contextMenu.canvasX - 180,
+                              y: contextMenu.canvasY - 170,
+                              customX: contextMenu.canvasX - 180,
+                              customY: contextMenu.canvasY - 170,
+                              mindmap: {
+                                x: contextMenu.canvasX - 180,
+                                y: contextMenu.canvasY - 170,
+                              },
+                              bento: {
+                                x: contextMenu.canvasX - 180,
+                                y: contextMenu.canvasY - 170,
+                              },
+                            },
+                            config: {
+                              isSkillNode: true,
+                              skillId: skill.id,
+                              title: skill.name,
+                              icon: skill.icon || "🧩",
+                              prompt: "",
+                            }
+                          };
+
+                          setHistory((prev) => [newSkillItem, ...prev]);
+                          setSelectedHistoryId(newSkillItem.id);
+                          setSelectedIds([]);
+                          syncToCloud(newSkillItem);
+                          setError(`已成功新建【${skill.name}】插件卡片！`);
+                          setIsCriticalError(false);
+                          setContextMenu(null);
+                          setHoveredContextItem(null);
+                        }}
+                        className="w-full text-left px-2.5 py-2 text-[11px] font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-lg transition-all flex items-center space-x-2 cursor-pointer group"
+                      >
+                        <span className="text-sm shrink-0">{skill.icon || "🧩"}</span>
+                        <span className="truncate">{skill.name}</span>
+                      </button>
+                    ))}
+                    {PLUGINS.filter((skill) => selectedPluginIds.includes(skill.id)).length === 0 && (
+                      <div className="text-[10px] text-zinc-500 p-3 text-center">
+                        暂无选中的插件，请去插件页面选择并激活插件
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             <div className="border-t border-zinc-800/60 my-1 mx-1.5" />
 

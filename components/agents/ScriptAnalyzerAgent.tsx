@@ -56,7 +56,7 @@ export const ScriptAnalyzerAgent: React.FC<ScriptAnalyzerAgentProps> = ({ config
       }
 
       const response = await scriptAnalyzerAgent.callApi('script', 'generateContent', {
-        model: config.script.model || 'gemini-1.5-pro',
+        model: config.script.model || 'gemini-3.5-flash',
         contents: currentMessages.map(m => ({
           role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
           parts: [{ text: m.content }]

@@ -260,6 +260,55 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ config, setConfig, onC
               </p>
             )}
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">显示名称 (DISPLAY NAME)</label>
+              <div className="relative">
+                <input 
+                  id={`${type}-api-displayname`}
+                  name={`${type}-api-displayname`}
+                  type="text"
+                  className="w-full h-12 bg-gray-50 border border-gray-100 rounded-2xl px-10 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/10 transition-all"
+                  placeholder="请输入要向用户展示的模型名称"
+                  value={section.displayName || ''}
+                  onChange={e => setLocalConfig({
+                    ...localConfig, 
+                    [type]: { ...section, displayName: e.target.value }
+                  })}
+                />
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">模型类型 (MODEL TYPE)</label>
+              <div className="relative">
+                <select
+                  id={`${type}-api-modeltype`}
+                  name={`${type}-api-modeltype`}
+                  className="w-full h-12 bg-gray-50 border border-gray-100 rounded-2xl pl-10 pr-4 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/10 transition-all appearance-none cursor-pointer"
+                  value={section.modelType || (type === 'script' || type === 'claudeSonnet' ? 'text' : (type === 'image' || type === 'gptImage' ? 'image' : 'video'))}
+                  onChange={e => setLocalConfig({
+                    ...localConfig, 
+                    [type]: { ...section, modelType: e.target.value as 'text' | 'image' | 'video' }
+                  })}
+                >
+                  <option value="text">文本 (Text)</option>
+                  <option value="image">图片 (Image)</option>
+                  <option value="video">视频 (Video)</option>
+                </select>
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                  <Box className="w-4 h-4" />
+                </div>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
