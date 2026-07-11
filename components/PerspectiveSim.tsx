@@ -15,7 +15,8 @@ import {
   Upload,
   Sparkles,
   Settings2,
-  Play
+  Play,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -31,6 +32,7 @@ interface PerspectiveSimProps {
   onClose: () => void;
   onGenerate: (params: PerspectiveParams) => void;
   initialImage?: string;
+  isEmbedded?: boolean;
 }
 
 export interface PerspectiveParams {
@@ -52,7 +54,7 @@ export interface PerspectiveParams {
   };
 }
 
-export const PerspectiveSim: React.FC<PerspectiveSimProps> = ({ onClose, onGenerate, initialImage }) => {
+export const PerspectiveSim: React.FC<PerspectiveSimProps> = ({ onClose, onGenerate, initialImage, isEmbedded = false }) => {
   const [params, setParams] = useState<PerspectiveParams>({
     azimuth: 139,
     elevation: 11,
@@ -168,13 +170,8 @@ export const PerspectiveSim: React.FC<PerspectiveSimProps> = ({ onClose, onGener
     }, 1500);
   };
 
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] bg-[#06080f] flex flex-col overflow-hidden text-slate-100"
-    >
+  const renderInner = () => (
+    <div className={cn("relative overflow-hidden bg-[#06080f] w-full flex flex-col", isEmbedded ? "h-[380px] rounded-2xl" : "h-full")}>
       {/* Hidden File Input */}
       <input 
         type="file" 
@@ -185,50 +182,90 @@ export const PerspectiveSim: React.FC<PerspectiveSimProps> = ({ onClose, onGener
       />
 
       {/* Top Header */}
-      <div className="h-16 border-b border-slate-800/50 bg-[#0a0b14] flex items-center justify-between px-6 shrink-0 relative z-30 shadow-2xl text-slate-100">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(79,70,229,0.4)]">
-            <Box className="w-6 h-6 text-white" />
+      {!isEmbedded && (
+        <div className="h-16 border-b border-slate-800/50 bg-[#0a0b14] flex items-center justify-between px-6 shrink-0 relative z-30 shadow-2xl text-slate-100">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(79,70,229,0.4)]">
+              <Box className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-sm font-black tracking-tight text-white flex items-center">
+                3D 导演台 <span className="mx-2 text-slate-700">/</span> DIRECTOR_STAGE
+              </h1>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">3D Cinematic Director Stage</span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <h1 className="text-sm font-black tracking-tight text-white flex items-center">
-              3D 导演台 <span className="mx-2 text-slate-700">/</span> DIRECTOR_STAGE
-            </h1>
-            <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">3D Cinematic Director Stage</span>
-          </div>
-        </div>
 
-        <div className="flex items-center space-x-6">
-          <div className="flex items-center space-x-4 bg-slate-900/50 px-4 py-2 rounded-2xl border border-slate-800/50">
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">当前机位</span>
-              <span className="text-[11px] font-black text-indigo-400">A-SHOT (MAIN)</span>
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-4 bg-slate-900/50 px-4 py-2 rounded-2xl border border-slate-800/50">
+              <div className="flex flex-col">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">当前机位</span>
+                <span className="text-[11px] font-black text-indigo-400">A-SHOT (MAIN)</span>
+              </div>
+              <div className="h-6 w-px bg-slate-800" />
+              <div className="flex flex-col">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">渲染状态</span>
+                <span className="text-[11px] font-black text-green-500 flex items-center space-x-2">
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                  <span>READY</span>
+                </span>
+              </div>
             </div>
-            <div className="h-6 w-px bg-slate-800" />
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">渲染状态</span>
-              <span className="text-[11px] font-black text-green-500 flex items-center space-x-2">
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                <span>READY</span>
-              </span>
-            </div>
+
+            <button 
+              onClick={handleGenerate}
+              disabled={isRendering}
+              className="px-5 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 font-bold rounded-xl text-xs flex items-center space-x-2 transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
+            >
+              {isRendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              <span>渲染生成机位</span>
+            </button>
+            
+            <button 
+              onClick={onClose}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-all border border-slate-800/50"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          
-          <button 
-            onClick={onClose}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900 text-slate-500 hover:bg-red-500/10 hover:text-red-500 transition-all border border-slate-800/50"
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
-      </div>
+      )}
 
       <div className="flex-1 relative overflow-hidden bg-[#06080f]">
         <DirectorStage 
           onParamsChange={(stageParams) => setParams(prev => ({ ...prev, stageParams }))}
           referenceImage={params.referenceImage}
         />
+
+        {/* Floating Controls for Embedded/Standard View inside the Stage */}
+        <div className="absolute bottom-4 right-4 z-[40] flex items-center space-x-2">
+          {isEmbedded && (
+            <button 
+              onClick={handleGenerate}
+              disabled={isRendering}
+              className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 font-bold rounded-xl text-xs flex items-center space-x-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-95"
+            >
+              {isRendering ? <Loader2 className="w-3 animate-spin" /> : <Sparkles className="w-3" />}
+              <span>{isRendering ? '渲染中...' : '生成场景机位'}</span>
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
+
+  if (isEmbedded) {
+    return renderInner();
+  }
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] bg-[#06080f] flex flex-col overflow-hidden text-slate-100"
+    >
+      {renderInner()}
     </motion.div>
   );
 };

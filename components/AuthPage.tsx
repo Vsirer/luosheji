@@ -401,11 +401,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           {/* Bottom toggle link */}
           {(mode === 'login' || mode === 'register') && (
             <div className="mt-6 text-center flex flex-col items-center justify-center gap-4">
-              {mode === 'login' && (
-                <div id="enterprise-vx-contact" className="text-sm text-gray-500">
-                  企业使用联系VX：<span className="text-gray-900 font-medium font-sans">zhurui5237</span>
-                </div>
-              )}
               <button
                 id="auth-toggle-btn"
                 onClick={() => {
@@ -419,22 +414,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                 ) : (
                   <>原有账号? <span className="text-black font-bold">立即登录</span></>
                 )}
-              </button>
-
-              <div id="guest-divider" className="h-[1px] w-full bg-gray-100 my-1" />
-              <button
-                type="button"
-                id="guest-access-btn"
-                onClick={() => {
-                  localStorage.setItem('isGuest', 'true');
-                  localStorage.removeItem('token');
-                  localStorage.removeItem('user');
-                  window.location.reload();
-                }}
-                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>以游客身份先逛逛</span>
               </button>
             </div>
           )}

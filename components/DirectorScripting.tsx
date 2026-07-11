@@ -86,7 +86,7 @@ import {
   SCENE_PANORAMA_RULES, 
   SCENE_LAYOUT_RULES 
 } from '../services/rules';
-import { assetAgent, ASSET_AGENT_SYSTEM_INSTRUCTION } from '../services/assetAgent';
+import { assetAgent, ASSET_AGENT_SYSTEM_INSTRUCTION } from './agents/assetAgent';
 import { pipelineService } from '../services/geminiService';
 import { GENERATION_COSTS } from '../constants';
 import { 
@@ -4805,7 +4805,7 @@ ${cleanPrompt(seg.prompt)}`;
                             </div>
 
                             {/* 图片展示与上传区 - 仅场景保留上传功能 */}
-                            {asset.type === 'scene' && (
+                            {false && asset.type === 'scene' && (
                               <div className="flex items-center space-x-4">
                                 <div 
                                   className={`w-28 h-28 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center overflow-hidden transition-all group relative cursor-pointer ${

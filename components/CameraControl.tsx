@@ -24,6 +24,7 @@ interface CameraControlProps {
   onClose: () => void;
   onConfirm: (params: CameraParams) => void;
   initialParams?: CameraParams;
+  isEmbedded?: boolean;
 }
 
 const CAMERA_MODELS = [
@@ -79,7 +80,7 @@ const LIGHTING_TYPES = [
   '默认', '日光', '阳光明媚', '灰蒙蒙', '月光', '人造光', '实用照明', '荧光', '火光', '混合光'
 ];
 
-export const CameraControl: React.FC<CameraControlProps> = ({ onClose, onConfirm, initialParams }) => {
+export const CameraControl: React.FC<CameraControlProps> = ({ onClose, onConfirm, initialParams, isEmbedded = false }) => {
   const [params, setParams] = useState<CameraParams>(initialParams || {
     model: '全画幅电影级数码相机',
     lensType: '无特定镜头',
@@ -90,16 +91,13 @@ export const CameraControl: React.FC<CameraControlProps> = ({ onClose, onConfirm
     lightingType: '默认'
   });
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 md:p-6 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="w-full max-w-3xl bg-white/95 backdrop-blur-2xl rounded-[40px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] border border-white/40 flex flex-col overflow-hidden text-gray-800 max-h-[80vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
+  const renderInner = () => (
+    <div className={cn(
+      "flex flex-col overflow-hidden text-gray-800 bg-white w-full",
+      isEmbedded ? "h-[380px] rounded-xl" : "h-full max-h-[80vh]"
+    )}>
+      {/* Header */}
+      {!isEmbedded && (
         <div className="h-16 border-b border-gray-100 flex items-center justify-between px-8 shrink-0 bg-gray-50/50">
           <div className="flex items-center space-x-4">
             <div className="p-2 bg-purple-100 rounded-xl text-purple-600">
@@ -117,8 +115,12 @@ export const CameraControl: React.FC<CameraControlProps> = ({ onClose, onConfirm
             <X className="w-6 h-6" />
           </button>
         </div>
+      )}
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-10 no-scrollbar">
+      <div className={cn(
+        "flex-1 overflow-y-auto no-scrollbar",
+        isEmbedded ? "p-3 space-y-4" : "p-8 space-y-10"
+      )}>
           {/* Camera Models Section */}
           <section className="space-y-6">
             <div className="flex items-center justify-between">
@@ -282,16 +284,36 @@ export const CameraControl: React.FC<CameraControlProps> = ({ onClose, onConfirm
           </section>
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-6 bg-gray-50/80 border-t border-gray-100 shrink-0">
-          <button 
-            onClick={() => onConfirm(params)}
-            className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-bold flex items-center justify-center space-x-3 shadow-xl shadow-purple-200 transition-all active:scale-95"
-          >
-            <Camera className="w-5 h-5" />
-            <span>应用相机协议</span>
-          </button>
-        </div>
+      {/* Footer Actions */}
+      <div className={cn("bg-gray-50/80 border-t border-gray-100 shrink-0", isEmbedded ? "p-3" : "p-6")}>
+        <button 
+          onClick={() => onConfirm(params)}
+          className={cn(
+            "w-full bg-purple-600 hover:bg-purple-700 text-white font-bold flex items-center justify-center space-x-2 transition-all active:scale-95",
+            isEmbedded ? "py-2.5 text-xs rounded-xl shadow-md" : "py-4 rounded-2xl shadow-xl shadow-purple-200"
+          )}
+        >
+          <Camera className={cn(isEmbedded ? "w-4 h-4" : "w-5 h-5")} />
+          <span>应用相机协议</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  if (isEmbedded) {
+    return renderInner();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 md:p-6 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="w-full max-w-3xl bg-white/95 backdrop-blur-2xl rounded-[40px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] border border-white/40 flex flex-col overflow-hidden text-gray-800 max-h-[80vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {renderInner()}
       </motion.div>
     </div>
   );

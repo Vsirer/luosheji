@@ -157,6 +157,9 @@ export const Layout: React.FC<LayoutProps> = ({
       let found = false;
       for (let i = 0; i < fixedElements.length; i++) {
         const el = fixedElements[i] as HTMLElement;
+        if (el.classList.contains('context-menu-backdrop') || el.getAttribute('data-context-menu-backdrop') === 'true') {
+          continue;
+        }
         const style = window.getComputedStyle(el);
         const zIndex = style.zIndex;
         const zNum = parseInt(zIndex, 10);
@@ -165,9 +168,25 @@ export const Layout: React.FC<LayoutProps> = ({
         if (!isNaN(zNum) && zNum >= 50 && zIndex !== '9999') {
           // Transparent click-away backdrops typically have no children and are fully transparent
           if (el.children.length === 0) {
-            const bg = style.backgroundColor;
-            const isTransparent = bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)' || bg === 'rgba(255, 255, 255, 0)';
-            const hasBlur = style.backdropFilter !== 'none' || (style as any).webkitBackdropFilter !== 'none';
+            const bg = style.backgroundColor || "";
+            const bgClean = bg.replace(/\s+/g, "").toLowerCase();
+            const isTransparent =
+              bgClean === "" ||
+              bgClean === "transparent" ||
+              bgClean === "rgba(0,0,0,0)" ||
+              bgClean === "rgba(255,255,255,0)" ||
+              bgClean.startsWith("rgba(0,0,0,0") ||
+              bgClean.endsWith(",0)") ||
+              bgClean.endsWith(",0.0)") ||
+              el.classList.contains("bg-transparent") ||
+              el.getAttribute("data-dropdown-backdrop") === "true";
+
+            const hasBlur =
+              style.backdropFilter !== "none" &&
+              style.backdropFilter !== "" &&
+              (style as any).webkitBackdropFilter !== "none" &&
+              (style as any).webkitBackdropFilter !== "";
+
             if (isTransparent && !hasBlur) {
               continue;
             }

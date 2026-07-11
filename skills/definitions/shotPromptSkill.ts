@@ -1,7 +1,7 @@
 import { AiSkill } from "../types";
 
 export const shotPromptSkill: AiSkill = {
-  id: "shot-prompt-skill",
+  id: "shot-prompt",
   name: "分镜提示词",
   desc: "将剧本根据特定时长/分段拆解成详尽的分分镜镜头提示词，精准定位空间布局、镜头视角与运镜方式",
   icon: "🎬",

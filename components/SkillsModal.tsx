@@ -15,7 +15,8 @@ import {
   Bookmark,
   ChevronRight,
   Code,
-  ArrowRight
+  ArrowRight,
+  Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AI_SKILLS, AiSkill, CustomSkillOption } from '../skills';
@@ -74,6 +75,8 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
   const [formIsPublic, setFormIsPublic] = useState(true);
   const [formTier, setFormTier] = useState<'light' | 'heavy'>('light');
   const [formCustomOptions, setFormCustomOptions] = useState<CustomSkillOption[]>([]);
+  const [formEnableUpload, setFormEnableUpload] = useState(false);
+  const [formUploadType, setFormUploadType] = useState<'all' | 'text' | 'image' | 'video'>('all');
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -148,7 +151,9 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
           instruction: formInstruction,
           isPublic: formIsPublic,
           tier: formTier,
-          customOptions: formCustomOptions
+          customOptions: formCustomOptions,
+          enableUpload: formEnableUpload,
+          uploadType: formUploadType
         })
       });
 
@@ -166,6 +171,8 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
           setFormIsPublic(true);
           setFormTier('light');
           setFormCustomOptions([]);
+          setFormEnableUpload(false);
+          setFormUploadType('all');
           setIsEditing(null);
           setActiveTab('my');
         }, 1200);
@@ -188,6 +195,8 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
     setFormIsPublic(skill.isPublic !== false);
     setFormTier(skill.tier || 'light');
     setFormCustomOptions(skill.customOptions || []);
+    setFormEnableUpload(!!skill.enableUpload);
+    setFormUploadType(skill.uploadType || 'all');
     setActiveTab('create');
   };
 
@@ -350,6 +359,9 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
                   setFormIcon('⚙️');
                   setFormInstruction('');
                   setFormIsPublic(true);
+                  setFormCustomOptions([]);
+                  setFormEnableUpload(false);
+                  setFormUploadType('all');
                 }
               }}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 ${
@@ -469,6 +481,21 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
                         <span className="text-[9px]">⚙️ 标准通用模式</span>
                       </div>
                     )}
+
+                    {skill.enableUpload && (
+                      <div className="mt-2 p-1.5 bg-emerald-50/40 border border-emerald-100/60 rounded-lg flex items-center justify-between text-[9px] text-emerald-700 font-bold">
+                        <span className="flex items-center">
+                          <Upload className="w-3 h-3 mr-1" />
+                          <span>支持自定义文件上传</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-white border border-emerald-150 rounded-md text-[8px] text-emerald-600 font-black">
+                          {skill.uploadType === 'all' && '全部类型'}
+                          {skill.uploadType === 'text' && '仅文本'}
+                          {skill.uploadType === 'image' && '仅图片'}
+                          {skill.uploadType === 'video' && '仅视频'}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between border-t border-gray-50 mt-4 pt-3">
@@ -576,6 +603,21 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
                     ) : (
                       <div className="mt-2.5 p-2 bg-slate-50 rounded-xl border border-slate-100 flex items-center space-x-1 text-slate-400 select-none">
                         <span className="text-[9px]">⚙️ 标准通用模式</span>
+                      </div>
+                    )}
+
+                    {skill.enableUpload && (
+                      <div className="mt-2 p-1.5 bg-emerald-50/40 border border-emerald-100/60 rounded-lg flex items-center justify-between text-[9px] text-emerald-700 font-bold">
+                        <span className="flex items-center">
+                          <Upload className="w-3 h-3 mr-1" />
+                          <span>支持自定义文件上传</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-white border border-emerald-150 rounded-md text-[8px] text-emerald-600 font-black">
+                          {skill.uploadType === 'all' && '全部类型'}
+                          {skill.uploadType === 'text' && '仅文本'}
+                          {skill.uploadType === 'image' && '仅图片'}
+                          {skill.uploadType === 'video' && '仅视频'}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -686,6 +728,21 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
                     ) : (
                       <div className="mt-2.5 p-2 bg-slate-50 rounded-xl border border-slate-100 flex items-center space-x-1 text-slate-400 select-none">
                         <span className="text-[9px]">⚙️ 标准通用模式</span>
+                      </div>
+                    )}
+
+                    {skill.enableUpload && (
+                      <div className="mt-2 p-1.5 bg-emerald-50/40 border border-emerald-100/60 rounded-lg flex items-center justify-between text-[9px] text-emerald-700 font-bold">
+                        <span className="flex items-center">
+                          <Upload className="w-3 h-3 mr-1" />
+                          <span>支持自定义文件上传</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-white border border-emerald-150 rounded-md text-[8px] text-emerald-600 font-black">
+                          {skill.uploadType === 'all' && '全部类型'}
+                          {skill.uploadType === 'text' && '仅文本'}
+                          {skill.uploadType === 'image' && '仅图片'}
+                          {skill.uploadType === 'video' && '仅视频'}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -846,6 +903,63 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
                 />
               </div>
 
+              {/* 是否具备上传功能 (Upload support option) */}
+              <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-gray-800 block">是否具备上传功能</span>
+                    <span className="text-[10px] text-gray-400 block mt-0.5">
+                      开启此功能后，使用该技能时可以上传自定义文件或素材
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => setFormEnableUpload(!formEnableUpload)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        formEnableUpload ? "bg-indigo-600" : "bg-gray-200"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          formEnableUpload ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {formEnableUpload && (
+                  <div className="overflow-hidden border-t border-gray-200/50 pt-3">
+                    <label className="block text-xs font-bold text-gray-700 mb-2">上传文件类型 (二级选项)</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[
+                        { value: 'all', label: '全部类型' },
+                        { value: 'text', label: '文本' },
+                        { value: 'image', label: '图片' },
+                        { value: 'video', label: '视频' }
+                      ].map((type) => {
+                        const isSelected = formUploadType === type.value;
+                        return (
+                          <button
+                            key={type.value}
+                            type="button"
+                            onClick={() => setFormUploadType(type.value as any)}
+                            className={`px-3 py-2 rounded-xl text-center border text-xs font-bold transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-white text-indigo-600 border-indigo-200 shadow-2xs"
+                                : "bg-gray-50 border-gray-150 text-gray-500 hover:bg-gray-100/50"
+                            }`}
+                          >
+                            {type.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* 自定义参数选项配置 (Custom options config) */}
               <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100/50 space-y-3.5">
                 <div className="flex items-center justify-between">
@@ -956,6 +1070,8 @@ export const SkillsModal: React.FC<SkillsModalProps> = ({
                       setFormInstruction('');
                       setFormIsPublic(true);
                       setFormCustomOptions([]);
+                      setFormEnableUpload(false);
+                      setFormUploadType('all');
                       setActiveTab('my');
                     }}
                     className="px-4 py-2.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"

@@ -1,4 +1,4 @@
-import { AiSkill } from "../types";
+import { AiSkill } from "../../skills/types";
 
 export const panoramaSkill: AiSkill = {
   id: "panorama",

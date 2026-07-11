@@ -62,24 +62,21 @@ import {
 import Markdown from 'react-markdown';
 import { 
   pipelineService, 
-  scriptAgent, 
-  scriptAnalyzerAgent, 
-  scriptRewriterAgent, 
 } from '../services/geminiService';
-import { directorAgent } from '../services/directorAgent';
-import { videoAgent } from '../services/videoAgent';
+import { directorAgent } from './agents/directorAgent';
+import { videoAgent } from './agents/videoAgent';
 import { intentEngine } from '../services/intentEngine';
-import { getAgentSystemInstruction } from '../services/agentHelper';
+import { getAgentSystemInstruction } from './agents/agentHelper';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
+import { OfficePreviewer } from './OfficePreviewer';
 import { 
   SCRIPT_GENRES, 
   RECOMMENDED_AUTHORS, 
   SCRIPT_LENGTHS, 
   SCRIPT_DURATIONS,
   EPISODE_OPTIONS,
-  REWRITE_SYSTEM_PROMPT,
   ANALYZER_SYSTEM_PROMPT,
   VISUAL_STYLES
 } from '../constants';
@@ -173,7 +170,7 @@ import { AI_SKILLS, AiSkill } from '../skills';
 import { PLUGINS } from '../plugin';
 import { SkillsModal } from './SkillsModal';
 
-const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDownload, handleView, onQuote, onRecall, onImageClick, onJump, isSameSenderAsNext, isSameSenderAsPrev, setMessages, runPipelineSteps, editingStep, setEditingStep, onRetryStep, setHistory, setTuningPipelineMsgId, onConvertToPipeline }: { 
+const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDownload, handleView, onQuote, onRecall, onImageClick, onJump, isSameSenderAsNext, isSameSenderAsPrev, setMessages, runPipelineSteps, editingStep, setEditingStep, onRetryStep, setHistory, setTuningPipelineMsgId, onConvertToPipeline, onSendQuickPrompt }: { 
   msg: Message, 
   currentUserId?: string | number,
   currentUserName?: string,
@@ -192,7 +189,8 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
   onRetryStep?: (messageId: string | number, stepId: string) => void,
   setHistory?: React.Dispatch<React.SetStateAction<any[]>>,
   setTuningPipelineMsgId?: React.Dispatch<React.SetStateAction<any>>,
-  onConvertToPipeline?: (msg: Message) => void
+  onConvertToPipeline?: (msg: Message) => void,
+  onSendQuickPrompt?: (prompt: string) => void
 }) => {
   const isUser = msg.role === 'user' || (msg.senderId !== undefined && currentUserId !== undefined && String(msg.senderId) === String(currentUserId));
   const isAttachment = ['image', 'video', 'audio', 'file'].includes(msg.type || '');
@@ -274,7 +272,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
             </span>
           )}
 
-          <div className={`group/msg relative px-4 py-2.5 rounded-xl shadow-sm select-text ${
+          <div className={`group/msg relative px-4 py-2.5 rounded-xl shadow-sm select-text max-w-full ${
             (isUser && !isAttachment) 
               ? 'bg-[#95ec69] text-gray-900 border border-[#87d65b]' 
               : 'bg-white border border-gray-200/60 text-gray-900'
@@ -286,20 +284,58 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                 )
               : 'after:content-[""] after:absolute after:top-3 after:-left-1.5 after:w-3 after:h-3 after:bg-white after:border-l after:border-b after:border-gray-200/60 after:rotate-45 after:rounded-sm'
           }`}>
-            <div className="relative min-w-[30px] select-text">
-              {!isAttachment && msg.content && (
-                <div className="text-[15px] leading-relaxed whitespace-pre-wrap font-sans font-normal break-words select-text">
+            <div className="relative min-w-[30px] max-w-full select-text">
+              {!isAttachment && msg.id === 'welcome_ai' ? (
+                <div className="flex flex-col items-center justify-center space-y-4 py-1.5 px-0.5 select-text w-full">
+                  <div className="flex flex-col space-y-1 items-center text-center">
+                    <h2 className="text-3xl font-extrabold tracking-tight select-text text-[#1b5bc8]">
+                      {currentUserName && currentUserName !== '我' ? currentUserName : '老板'}，你好
+                    </h2>
+                    <h3 className="text-2xl font-bold text-slate-700 tracking-tight mt-1 select-text">
+                      今天需要我做些什么?
+                    </h3>
+                  </div>
+
+                  <div className="flex flex-col space-y-2 pt-2 select-none w-full sm:w-[360px]">
+                    <button
+                      type="button"
+                      onClick={() => onSendQuickPrompt?.('做一套电商详情页')}
+                      className="w-full text-left px-5 py-3 bg-[#f0f4f9] hover:bg-[#e1e9f5] text-slate-800 rounded-full text-[14px] font-semibold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-between group shadow-xs border-0"
+                    >
+                      <span className="font-sans">做一套电商详情页</span>
+                      <span className="text-[11px] text-slate-400 group-hover:text-blue-600 font-bold transition-colors">→</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSendQuickPrompt?.('做一套王老吉广告策划与视频')}
+                      className="w-full text-left px-5 py-3 bg-[#f0f4f9] hover:bg-[#e1e9f5] text-slate-800 rounded-full text-[14px] font-semibold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-between group shadow-xs border-0"
+                    >
+                      <span className="font-sans">做一套王老吉广告策划与视频</span>
+                      <span className="text-[11px] text-slate-400 group-hover:text-blue-600 font-bold transition-colors">→</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSendQuickPrompt?.('做一部AI剧')}
+                      className="w-full text-left px-5 py-3 bg-[#f0f4f9] hover:bg-[#e1e9f5] text-slate-800 rounded-full text-[14px] font-semibold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-between group shadow-xs border-0"
+                    >
+                      <span className="font-sans">做一部AI剧</span>
+                      <span className="text-[11px] text-slate-400 group-hover:text-blue-600 font-bold transition-colors">→</span>
+                    </button>
+                  </div>
+                </div>
+              ) : !isAttachment && msg.content ? (
+                <div className="text-[15px] leading-relaxed whitespace-pre-wrap font-sans font-normal break-words max-w-full select-text">
                   {msg.content.startsWith('✨') || msg.content.includes('**') ? (
-                    <div className="markdown-body text-[14px] select-text">
+                    <div className="markdown-body text-[14px] max-w-full overflow-x-auto select-text">
                       <Markdown>{msg.content}</Markdown>
                     </div>
                   ) : (
-                    <p className="select-text">{msg.content}</p>
+                    <p className="select-text break-words max-w-full">{msg.content}</p>
                   )}
                 </div>
-              )}
+              ) : null}
 
-              {!isUser && !isAttachment && !msg.pipelinePlan && msg.content && onConvertToPipeline && (
+              {!isUser && !isAttachment && !msg.pipelinePlan && msg.id !== 'welcome_ai' && msg.content && onConvertToPipeline && (
                 <div className="mt-3.5 pt-3 border-t border-dashed border-gray-100/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 select-none">
                   <div className="flex items-center space-x-1.5 text-[11px] text-gray-500 font-medium">
                     <span className="text-[12px] animate-pulse">💡</span>
@@ -554,6 +590,18 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                   isSkipped ? 'text-gray-400 line-through' :
                                   'text-gray-700'
                                 }`}>{step.label}</span>
+                                {isEnabled && step.companyName && (
+                                  <div className="flex flex-wrap gap-1.5 mt-1 items-center">
+                                    <span className="text-[10px] bg-indigo-50/80 text-indigo-700 font-medium px-1.5 py-0.5 rounded-md border border-indigo-100/50 flex items-center gap-0.5 shadow-sm">
+                                      🏢 {step.companyName}
+                                    </span>
+                                    {step.employeeRole && (
+                                      <span className="text-[10px] bg-slate-100 text-slate-700 font-medium px-1.5 py-0.5 rounded-md border border-slate-200/50 flex items-center gap-0.5 shadow-sm">
+                                        👤 {step.employeeRole}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
                             
@@ -887,6 +935,8 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                                     status: nodeStatus,
                                     imageUrl,
                                     videoUrl,
+                                    prompt: step.prompt,
+                                    revisedPrompt: step.prompt,
                                     timestamp: Date.now() + idx,
                                     parentId: parentId || '',
                                     position: {
@@ -1442,11 +1492,17 @@ export const Codex: React.FC<CodexProps> = ({
   ], [customSkills]);
 
   useEffect(() => {
-    onActiveSkillsFetched?.(activeSkills);
+    if (onActiveSkillsFetched) {
+      const timer = setTimeout(() => {
+        onActiveSkillsFetched(activeSkills);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
   }, [activeSkills, onActiveSkillsFetched]);
 
   const chatTargetIdRef = useRef(chatTargetId);
   const lastGroupTargetIdRef = useRef<string>('team');
+  const pendingExecutionRef = useRef<{ messageId: string | number; plan: any; stepIndex: number } | null>(null);
 
   useEffect(() => {
     chatTargetIdRef.current = chatTargetId;
@@ -1456,7 +1512,7 @@ export const Codex: React.FC<CodexProps> = ({
   }, [chatTargetId]);
 
   const getFallbackGroupChatTargetId = () => {
-    if (lastGroupTargetIdRef.current && lastGroupTargetIdRef.current !== 'team' && lastGroupTargetIdRef.current !== 'ceo') {
+    if (lastGroupTargetIdRef.current && lastGroupTargetIdRef.current !== 'team') {
       return lastGroupTargetIdRef.current;
     }
     if (groupChats && groupChats.length > 0) {
@@ -1475,9 +1531,7 @@ export const Codex: React.FC<CodexProps> = ({
     };
   }, []);
   const [activeAgentIds, setActiveAgentIds] = useState<string[]>(() => {
-    const saved = loadState('activeAgentIds', ['ceo', 'script']);
-    if (!saved.includes('ceo')) return ['ceo', ...saved];
-    return saved;
+    return ['ceo'];
   }); 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null); 
   const [selectedMedia, setSelectedMedia] = useState<Message | null>(null);
@@ -1698,6 +1752,9 @@ export const Codex: React.FC<CodexProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState('');
+  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
+  const [skillSearchQuery, setSkillSearchQuery] = useState('');
+  const [skillDropdownIndex, setSkillDropdownIndex] = useState(0);
   const currentInputValue = externalInput !== undefined ? externalInput : inputValue;
   const handleInputValueChange = (val: string) => {
     if (onExternalInputChange) {
@@ -1710,7 +1767,12 @@ export const Codex: React.FC<CodexProps> = ({
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupChats, setGroupChats] = useState<GroupChat[]>([]);
   useEffect(() => {
-    onGroupsFetched?.(groupChats);
+    if (onGroupsFetched) {
+      const timer = setTimeout(() => {
+        onGroupsFetched(groupChats);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
   }, [groupChats, onGroupsFetched]);
   const [allTeamMembers, setAllTeamMembers] = useState<TeamMember[]>([]);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
@@ -1719,13 +1781,19 @@ export const Codex: React.FC<CodexProps> = ({
 
   useEffect(() => {
     if (onExternalFilesCountChange) {
-      onExternalFilesCountChange(analyzerFiles.length);
+      const timer = setTimeout(() => {
+        onExternalFilesCountChange(analyzerFiles.length);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [analyzerFiles.length, onExternalFilesCountChange]);
 
   useEffect(() => {
     if (onExternalFilesChange) {
-      onExternalFilesChange(analyzerFiles);
+      const timer = setTimeout(() => {
+        onExternalFilesChange(analyzerFiles);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [analyzerFiles, onExternalFilesChange]);
 
@@ -1796,7 +1864,9 @@ export const Codex: React.FC<CodexProps> = ({
             const blob = new Blob([initialMaterial.content], { type: mimeType });
             const file = new File([blob], initialMaterial.name, { type: mimeType });
             setAnalyzerFiles([file]);
-            if (onClearInitialMaterial) onClearInitialMaterial();
+            if (onClearInitialMaterial) {
+              setTimeout(() => onClearInitialMaterial(), 0);
+            }
             return;
           }
 
@@ -1812,7 +1882,9 @@ export const Codex: React.FC<CodexProps> = ({
           const blob = await response.blob();
           const file = new File([blob], initialMaterial.name, { type: mimeType });
           setAnalyzerFiles([file]);
-          if (onClearInitialMaterial) onClearInitialMaterial();
+          if (onClearInitialMaterial) {
+            setTimeout(() => onClearInitialMaterial(), 0);
+          }
         } catch (e) {
           console.error('加载初始素材失败:', e);
         }
@@ -2094,12 +2166,8 @@ export const Codex: React.FC<CodexProps> = ({
 
     // Direct fetch helper to ensure we load the shared media instantly without relying on full group message loads
     const fetchDirectSharedMedia = async (retryCount = 0) => {
-      let token = localStorage.getItem('token');
-      if (!token) {
-        localStorage.setItem('isGuest', 'true');
-        localStorage.setItem('token', 'guest');
-        token = 'guest';
-      }
+      const token = localStorage.getItem('token');
+      if (!token || token === 'guest') return;
       try {
         const res = await fetch(`/api/share-media-detail/${shareMediaId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -2340,7 +2408,7 @@ export const Codex: React.FC<CodexProps> = ({
       timestamp: welcomeTimestampRef.current
     };
 
-    const cached = loadState(`messages_${chatTargetId}`, (chatTargetId === 'team' || chatTargetId === 'ceo' || chatTargetId.endsWith('_ai')) ? [defaultWelcome] : []);
+    const cached = loadState(`messages_${chatTargetId}`, (chatTargetId.endsWith('_ai')) ? [defaultWelcome] : []);
     setMessages(cached);
     setLoadedTargetId(chatTargetId);
     setLoadedUserId(userId);
@@ -2858,7 +2926,7 @@ export const Codex: React.FC<CodexProps> = ({
       await fetchGroupChats();
       
       if (chatTargetId === `group_${id}`) {
-        changeChatTargetId('ceo');
+        changeChatTargetId('team');
       }
     } catch (e: any) {
       // Rollback on error
@@ -2889,13 +2957,24 @@ export const Codex: React.FC<CodexProps> = ({
   };
 
   const confirmClearChat = () => {
-    const welcomeMsg: Message = {
-      id: Date.now().toString(),
+    const isAi = chatTargetId.endsWith('_ai');
+    const defaultWelcome: Message = isAi ? {
+      id: 'welcome_ai',
       role: 'assistant',
-      content: '对话记录已清空。',
+      content: '您好！我是当前小组的 小逻。您可以随时向我咨询关于项目协作、讨论板内容、创意思路或文件管理的问题，我会尽力为您解答。',
+      agentName: '小逻',
+      agentIcon: '🤖',
+      timestamp: Date.now()
+    } : {
+      id: 'welcome',
+      role: 'assistant',
+      content: '欢迎来到项目协作舱。您可以在当前工作空间内与团队成员进行协同办公、分配任务及管理项目文件。',
+      agentName: '协同助手',
+      agentIcon: '💼',
       timestamp: Date.now()
     };
-    setMessages([welcomeMsg]);
+
+    setMessages([defaultWelcome]);
     setShowClearConfirm(false);
   };
 
@@ -3143,6 +3222,8 @@ ${sourceMsg.content}`;
               status: 'pipeline_pending',
               timestamp: Date.now() + idx,
               parentId,
+              prompt: step.prompt,
+              revisedPrompt: step.prompt,
               position: { x: nodeX, y: nodeY },
               canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
               config: {
@@ -3214,7 +3295,10 @@ ${sourceMsg.content}`;
     }, 10 * 60 * 1000); // 10 mins timeout
 
     try {
-      const updatedPlan = { ...initialPlan };
+      const updatedPlan = { 
+        ...initialPlan,
+        steps: initialPlan.steps ? initialPlan.steps.map((s: any) => ({ ...s })) : []
+      };
       const outputs: Record<string, any> = {};
 
       // Gather outputs of all completed steps prior to startStepIndex
@@ -3235,7 +3319,13 @@ ${sourceMsg.content}`;
           }
           setMessages(prev => prev.map(m => {
             if (m.id === pipelineMsgId) {
-              return { ...m, pipelinePlan: { ...updatedPlan } };
+              return { 
+                ...m, 
+                pipelinePlan: { 
+                  ...updatedPlan,
+                  steps: updatedPlan.steps.map((s: any) => ({ ...s }))
+                } 
+              };
             }
             return m;
           }));
@@ -3249,7 +3339,13 @@ ${sourceMsg.content}`;
 
         setMessages(prev => prev.map(m => {
           if (m.id === pipelineMsgId) {
-            return { ...m, pipelinePlan: { ...updatedPlan } };
+            return { 
+              ...m, 
+              pipelinePlan: { 
+                ...updatedPlan,
+                steps: updatedPlan.steps.map((s: any) => ({ ...s }))
+              } 
+            };
           }
           return m;
         }));
@@ -3314,6 +3410,8 @@ ${sourceMsg.content}`;
                           status: 'success',
                           imageUrl: step.type === 'image' ? ossUrl : undefined,
                           videoUrl: step.type === 'video' ? ossUrl : undefined,
+                          prompt: result.revisedPrompt || step.prompt,
+                          revisedPrompt: result.revisedPrompt || step.prompt,
                           timestamp: payload.timestamp,
                           position: {
                             x: posX,
@@ -3336,6 +3434,16 @@ ${sourceMsg.content}`;
                         return prev.map(h => {
                           if (h.id === step.id && updatedPlaceholder) {
                             return updatedPlaceholder as any;
+                          }
+                          if (h.id === resultId) {
+                            return {
+                              ...h,
+                              imageUrl: step.type === 'image' ? ossUrl : undefined,
+                              videoUrl: step.type === 'video' ? ossUrl : undefined,
+                              prompt: result.revisedPrompt || step.prompt,
+                              revisedPrompt: result.revisedPrompt || step.prompt,
+                              status: 'success'
+                            };
                           }
                           if (nextStepId && h.id === nextStepId) {
                             return {
@@ -3555,6 +3663,8 @@ ${sourceMsg.content}`;
                 videoUrl: step.type === 'video' && result.url ? result.url : (existingContent ? existingContent.videoUrl : undefined),
                 code: (step.type === 'ui' || step.type === 'code') && result.code ? result.code : (existingContent ? existingContent.code : undefined),
                 text: step.type === 'script' && result.text ? result.text : (existingContent ? existingContent.text : undefined),
+                prompt: step.type === 'script' && result.text ? result.text : (result.revisedPrompt || step.prompt),
+                revisedPrompt: step.type === 'script' && result.text ? result.text : (result.revisedPrompt || step.prompt),
                 timestamp: Date.now(),
                 position: {
                   x: posX,
@@ -3601,7 +3711,13 @@ ${sourceMsg.content}`;
 
           setMessages(prev => prev.map(m => {
             if (m.id === pipelineMsgId) {
-              return { ...m, pipelinePlan: { ...updatedPlan } };
+              return { 
+                ...m, 
+                pipelinePlan: { 
+                  ...updatedPlan,
+                  steps: updatedPlan.steps.map((s: any) => ({ ...s }))
+                } 
+              };
             }
             return m;
           }));
@@ -3618,7 +3734,10 @@ ${sourceMsg.content}`;
             if (m.id === pipelineMsgId) {
               return {
                 ...m,
-                pipelinePlan: { ...updatedPlan },
+                pipelinePlan: { 
+                  ...updatedPlan,
+                  steps: updatedPlan.steps.map((s: any) => ({ ...s }))
+                },
                 content: `❌ 流水线在【${step.label}】步骤发生错误: ${step.error}`
               };
             }
@@ -3631,7 +3750,13 @@ ${sourceMsg.content}`;
 
         setMessages(prev => prev.map(m => {
           if (m.id === pipelineMsgId) {
-            return { ...m, pipelinePlan: { ...updatedPlan } };
+            return { 
+              ...m, 
+              pipelinePlan: { 
+                ...updatedPlan,
+                steps: updatedPlan.steps.map((s: any) => ({ ...s }))
+              } 
+            };
           }
           return m;
         }));
@@ -3665,7 +3790,13 @@ ${sourceMsg.content}`;
     }
   };
 
-  const handleRetryPipelineStep = (messageId: string | number, stepId: string) => {
+  const handleRetryPipelineStep = (
+    messageId: string | number, 
+    stepId: string, 
+    updatedPrompt?: string, 
+    updatedRatio?: string, 
+    updatedDuration?: string
+  ) => {
     const msg = messages.find(m => m.id === messageId);
     if (!msg || !msg.pipelinePlan) return;
 
@@ -3677,12 +3808,46 @@ ${sourceMsg.content}`;
     const updatedPlan = { ...msg.pipelinePlan };
     updatedPlan.steps = updatedPlan.steps.map((step: any, idx: number) => {
       if (idx === stepIndex) {
-        return { ...step, status: 'running', error: undefined, output: undefined };
+        return { 
+          ...step, 
+          status: 'running', 
+          error: undefined, 
+          output: undefined,
+          prompt: updatedPrompt !== undefined ? updatedPrompt : step.prompt,
+          config: {
+            ...step.config,
+            prompt: updatedPrompt !== undefined ? updatedPrompt : (step.config?.prompt || step.prompt),
+            aspectRatio: updatedRatio !== undefined ? updatedRatio : step.config?.aspectRatio,
+            duration: updatedDuration !== undefined ? updatedDuration : step.config?.duration
+          }
+        };
       } else if (idx > stepIndex) {
         return { ...step, status: 'pending', error: undefined, output: undefined };
       }
       return step;
     });
+
+    if (setHistory) {
+      setHistory(prev => prev.map(h => {
+        const hIdx = steps.findIndex((s: any) => s.id === h.id);
+        if (h.id === stepId) {
+          return { 
+            ...h, 
+            status: 'running', 
+            error: undefined,
+            config: {
+              ...h.config,
+              prompt: updatedPrompt !== undefined ? updatedPrompt : h.config?.prompt,
+              aspectRatio: updatedRatio !== undefined ? updatedRatio : h.config?.aspectRatio,
+              duration: updatedDuration !== undefined ? updatedDuration : h.config?.duration
+            }
+          };
+        } else if (hIdx > stepIndex && hIdx !== -1) {
+          return { ...h, status: 'pipeline_pending', error: undefined };
+        }
+        return h;
+      }));
+    }
 
     setMessages(prev => prev.map(m => {
       if (m.id === messageId) {
@@ -3698,6 +3863,14 @@ ${sourceMsg.content}`;
     // Run pipeline steps starting from stepIndex
     runPipelineSteps(messageId, updatedPlan, stepIndex);
   };
+
+  useEffect(() => {
+    if (pendingExecutionRef.current && chatTargetId === loadedTargetId) {
+      const { messageId, plan, stepIndex } = pendingExecutionRef.current;
+      pendingExecutionRef.current = null;
+      runPipelineSteps(messageId, plan, stepIndex);
+    }
+  }, [chatTargetId, loadedTargetId, runPipelineSteps]);
 
   useEffect(() => {
     const handleStartPipeline = (e: Event) => {
@@ -3740,12 +3913,187 @@ ${sourceMsg.content}`;
     const handleRetryStep = (e: Event) => {
       const customEvent = e as CustomEvent;
       const stepId = customEvent.detail?.stepId;
+      const pipelineId = customEvent.detail?.pipelineId;
       if (!stepId) return;
+
+      const updatedPrompt = customEvent.detail?.prompt;
+      const updatedRatio = customEvent.detail?.aspectRatio;
+      const updatedDuration = customEvent.detail?.duration;
       
-      const msg = messages.find(m => m.pipelinePlan?.steps?.some((s: any) => s.id === stepId));
-      if (msg && msg.pipelinePlan) {
-        handleRetryPipelineStep(msg.id, stepId);
+      // 1. Check current active session messages
+      let msg = messages.find(m => m.pipelinePlan?.steps?.some((s: any) => s.id === stepId));
+      if (!msg && pipelineId) {
+        msg = messages.find(m => m.id === pipelineId);
       }
+
+      if (msg && msg.pipelinePlan) {
+        handleRetryPipelineStep(msg.id, stepId, updatedPrompt, updatedRatio, updatedDuration);
+        return;
+      }
+
+      // 2. Scan localStorage for other sessions containing this step
+      const localStoragePrefix = userId ? `codex_state_${userId}` : 'codex_state_guest';
+      let foundTargetId = null;
+      let foundMessages = null;
+      let foundMsg = null;
+
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(`${localStoragePrefix}_messages_`)) {
+          try {
+            const list = JSON.parse(localStorage.getItem(key) || '[]');
+            const m = list.find((itemMsg: any) => 
+              itemMsg.pipelinePlan?.steps?.some((s: any) => s.id === stepId) || 
+              (pipelineId && itemMsg.id === pipelineId)
+            );
+            if (m) {
+              foundTargetId = key.substring(`${localStoragePrefix}_messages_`.length);
+              foundMessages = list;
+              foundMsg = m;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (foundTargetId && foundMessages && foundMsg && foundMsg.pipelinePlan) {
+        const updatedPlan = { ...foundMsg.pipelinePlan };
+        const stepIndex = updatedPlan.steps.findIndex((s: any) => s.id === stepId);
+        if (stepIndex !== -1) {
+          updatedPlan.steps = updatedPlan.steps.map((step: any, idx: number) => {
+            if (idx === stepIndex) {
+              return { 
+                ...step, 
+                status: 'running', 
+                error: undefined, 
+                output: undefined,
+                prompt: updatedPrompt !== undefined ? updatedPrompt : step.prompt,
+                config: {
+                  ...step.config,
+                  prompt: updatedPrompt !== undefined ? updatedPrompt : (step.config?.prompt || step.prompt),
+                  aspectRatio: updatedRatio !== undefined ? updatedRatio : step.config?.aspectRatio,
+                  duration: updatedDuration !== undefined ? updatedDuration : step.config?.duration
+                }
+              };
+            } else if (idx > stepIndex) {
+              return { ...step, status: 'pending', error: undefined, output: undefined };
+            }
+            return step;
+          });
+
+          const nextMsgs = foundMessages.map((m: any) => {
+            if (m.id === foundMsg.id) {
+              return { 
+                ...m, 
+                pipelinePlan: updatedPlan,
+                content: `🔄 正在重新生成：【${updatedPlan.steps[stepIndex].label}】及后续步骤...`
+              };
+            }
+            return m;
+          });
+
+          localStorage.setItem(`${localStoragePrefix}_messages_${foundTargetId}`, JSON.stringify(nextMsgs));
+
+          // Update history status on canvas
+          if (setHistory) {
+            setHistory(prev => prev.map(h => {
+              const hIdx = updatedPlan.steps.findIndex((s: any) => s.id === h.id);
+              if (h.id === stepId) {
+                return { 
+                  ...h, 
+                  status: 'running', 
+                  error: undefined,
+                  config: {
+                    ...h.config,
+                    prompt: updatedPrompt !== undefined ? updatedPrompt : h.config?.prompt,
+                    aspectRatio: updatedRatio !== undefined ? updatedRatio : h.config?.aspectRatio,
+                    duration: updatedDuration !== undefined ? updatedDuration : h.config?.duration
+                  }
+                };
+              } else if (hIdx > stepIndex && hIdx !== -1) {
+                return { ...h, status: 'pipeline_pending', error: undefined };
+              }
+              return h;
+            }));
+          }
+
+          // Queue pending execution ref
+          pendingExecutionRef.current = {
+            messageId: foundMsg.id,
+            plan: updatedPlan,
+            stepIndex: stepIndex
+          };
+
+          // Change chatTargetId to automatically load that session's chat panel
+          setChatTargetId(foundTargetId);
+          return;
+        }
+      }
+
+      // 3. Fallback: Fetch user history and reconstruct pipeline step sequence directly
+      fetch('/api/user/history')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success && Array.isArray(data.data)) {
+            const list = data.data;
+            const fallbackPipelineId = pipelineId || `pipeline_${Date.now()}`;
+            const relatedNodes = list.filter((h: any) => (h.config as any)?.pipelineId === fallbackPipelineId);
+            if (relatedNodes.length > 0) {
+              const steps = relatedNodes.map((node: any) => ({
+                id: node.id,
+                label: node.config?.title || "意图执行节点",
+                type: node.type === 'gen_script' ? 'script' : node.type,
+                status: node.id === stepId ? 'running' : (node.status === 'success' || node.status === 'pipeline_completed' ? 'completed' : 'pending'),
+                prompt: node.config?.prompt || node.prompt || "",
+                config: node.config
+              }));
+
+              const mockPlan = {
+                steps,
+                started: true,
+                generatedOnCanvas: true
+              };
+
+              const mockMsgId = fallbackPipelineId;
+              const mockMsg = {
+                id: mockMsgId,
+                role: 'assistant' as const,
+                type: 'pipeline' as const,
+                content: `🔄 正在重新生成...`,
+                timestamp: Date.now(),
+                pipelinePlan: mockPlan
+              };
+
+              setMessages(prev => [...prev, mockMsg]);
+
+              if (setHistory) {
+                setHistory(prev => prev.map(h => {
+                  const hIdx = steps.findIndex((s: any) => s.id === h.id);
+                  const stepIndex = steps.findIndex(s => s.id === stepId);
+                  if (h.id === stepId) {
+                    return { 
+                      ...h, 
+                      status: 'running', 
+                      error: undefined,
+                      config: {
+                        ...h.config,
+                        prompt: updatedPrompt !== undefined ? updatedPrompt : h.config?.prompt,
+                        aspectRatio: updatedRatio !== undefined ? updatedRatio : h.config?.aspectRatio,
+                        duration: updatedDuration !== undefined ? updatedDuration : h.config?.duration
+                      }
+                    };
+                  } else if (hIdx > stepIndex && hIdx !== -1) {
+                    return { ...h, status: 'pipeline_pending', error: undefined };
+                  }
+                  return h;
+                }));
+              }
+
+              runPipelineSteps(mockMsgId, mockPlan, steps.findIndex(s => s.id === stepId));
+            }
+          }
+        })
+        .catch(err => console.error("Fallback retry failed to fetch history:", err));
     };
 
     window.addEventListener('start-pipeline-execution', handleStartPipeline);
@@ -3754,7 +4102,7 @@ ${sourceMsg.content}`;
       window.removeEventListener('start-pipeline-execution', handleStartPipeline);
       window.removeEventListener('retry-pipeline-step', handleRetryStep);
     };
-  }, [messages, setMessages, setHistory, runPipelineSteps, handleRetryPipelineStep]);
+  }, [messages, setMessages, setHistory, runPipelineSteps, handleRetryPipelineStep, userId, chatTargetId, setChatTargetId]);
 
   const handleInsertDivider = () => {
     const dividerMsg: Message = {
@@ -3767,14 +4115,72 @@ ${sourceMsg.content}`;
     setMessages(prev => [...prev, dividerMsg]);
   };
 
-  const handleSend = async () => {
-    if ((!currentInputValue.trim() && analyzerFiles.length === 0) || isGenerating) return;
+  const filteredSkills = React.useMemo(() => {
+    const query = skillSearchQuery.toLowerCase();
+    return activeSkills.filter(skill => {
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        skill.id.toLowerCase().includes(query) ||
+        (skill.desc && skill.desc.toLowerCase().includes(query))
+      );
+    });
+  }, [activeSkills, skillSearchQuery]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    handleInputValueChange(text);
+
+    const selStart = e.target.selectionStart;
+    const textBeforeCursor = text.slice(0, selStart);
+    const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+
+    if (lastHashIndex !== -1) {
+      const afterHash = textBeforeCursor.slice(lastHashIndex + 1);
+      if (!afterHash.includes(' ') && !afterHash.includes('\n')) {
+        setShowSkillDropdown(true);
+        setSkillSearchQuery(afterHash);
+        setSkillDropdownIndex(0);
+        return;
+      }
+    }
+    setShowSkillDropdown(false);
+  };
+
+  const handleSelectSkill = (skill: any) => {
+    const text = currentInputValue;
+    const selStart = textareaRef.current ? textareaRef.current.selectionStart : text.length;
+    const textBeforeCursor = text.slice(0, selStart);
+    const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+
+    if (lastHashIndex !== -1) {
+      const prefix = text.slice(0, lastHashIndex);
+      const suffix = text.slice(selStart);
+      const cleanSkillName = skill.name.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim(); // strip emojis
+      const inserted = `#${cleanSkillName} `;
+      const newValue = prefix + inserted + suffix;
+      handleInputValueChange(newValue);
+      setShowSkillDropdown(false);
+
+      // Refocus and place caret after inserted skill
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          const newCursorPos = lastHashIndex + inserted.length;
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      }, 50);
+    }
+  };
+
+  const handleSend = async (overrideText?: string) => {
+    const textToSend = overrideText !== undefined ? overrideText : currentInputValue;
+    if ((!textToSend.trim() && analyzerFiles.length === 0) || isGenerating) return;
 
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
       senderId: currentUser?.id,
-      content: currentInputValue || (analyzerFiles.length > 0 ? `[发送文件: ${analyzerFiles.map(f => f.name).join(', ')}]` : ''),
+      content: textToSend || (analyzerFiles.length > 0 ? `[发送文件: ${analyzerFiles.map(f => f.name).join(', ')}]` : ''),
       timestamp: Date.now(),
       quotedMessage: activeQuote ? { ...activeQuote } : undefined
     };
@@ -3787,7 +4193,7 @@ ${sourceMsg.content}`;
     setActiveQuote(null);
 
     // 🧠 Persistence Memory: Intercept "#记住" / "#remember" command
-    const inputClean = currentInputValue.trim();
+    const inputClean = textToSend.trim();
     if (inputClean.startsWith("#记住") || inputClean.startsWith("#remember")) {
       const prefText = inputClean.replace(/^#(记住|remember)\s*/, "");
       if (prefText) {
@@ -3828,7 +4234,9 @@ ${sourceMsg.content}`;
             };
             setMessages(prev => [...prev, userMsg, successMsg]);
             setIsGenerating(false);
-            handleInputValueChange('');
+            if (overrideText === undefined) {
+              handleInputValueChange('');
+            }
             setAnalyzerFiles([]);
             return;
           }
@@ -3843,9 +4251,11 @@ ${sourceMsg.content}`;
       const groupId = chatTargetId.replace('group_', '');
       const group = groupChats.find(g => String(g.id) === groupId);
       if (group) {
-        const currentInput = currentInputValue;
+        const currentInput = textToSend;
         const currentFiles = [...analyzerFiles];
-        handleInputValueChange('');
+        if (overrideText === undefined) {
+          handleInputValueChange('');
+        }
         setAnalyzerFiles([]); // Clear early for better UX
         
         try {
@@ -3962,9 +4372,11 @@ ${sourceMsg.content}`;
     }
 
     // Normal generation - Clear input now
-    const currentInputRaw = currentInputValue;
+    const currentInputRaw = textToSend;
     const currentQuoteObj = activeQuote;
-    handleInputValueChange('');
+    if (overrideText === undefined) {
+      handleInputValueChange('');
+    }
     setActiveQuote(null);
 
     const target = employees.find(e => e.id === chatTargetId);
@@ -4439,6 +4851,8 @@ ${sourceMsg.content}`;
                   status: 'pipeline_pending',
                   timestamp: Date.now() + idx,
                   parentId,
+                  prompt: step.prompt,
+                  revisedPrompt: step.prompt,
                   position: { x: nodeX, y: nodeY },
                   canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
                   config: {
@@ -4480,19 +4894,19 @@ ${sourceMsg.content}`;
             responseContent = intentPlan.response || '意图引导未生成有效内容。';
           }
         } else if (chatTargetId === 'script_analyzer') {
-          response = await scriptAnalyzerAgent.callApi('script', 'generateContent', {
+          response = await directorAgent.callApi('script', 'generateContent', {
             model: modelToUse,
             contents: [...historyForCall, { role: 'user', parts: lastUserParts }],
             config: { systemInstruction, temperature: 0.2 }
           }, config);
         } else if (chatTargetId === 'script_rewriter') {
-          response = await scriptRewriterAgent.callApi('script', 'generateContent', {
+          response = await directorAgent.callApi('script', 'generateContent', {
             model: modelToUse,
             contents: [...historyForCall, { role: 'user', parts: lastUserParts }],
             config: { systemInstruction, temperature: 0.8 }
           }, config);
         } else if (chatTargetId === 'script') {
-          response = await scriptAgent.callApi('script', 'generateContent', {
+          response = await directorAgent.callApi('script', 'generateContent', {
             model: modelToUse,
             contents: [...historyForCall, { role: 'user', parts: lastUserParts }],
             config: { systemInstruction, temperature: 0.7 }
@@ -4675,6 +5089,7 @@ ${sourceMsg.content}`;
                       setHistory={setHistory}
                       setTuningPipelineMsgId={setTuningPipelineMsgId}
                       onConvertToPipeline={aiSkill === 'general' ? handleConvertTextToPipeline : undefined}
+                      onSendQuickPrompt={(prompt) => handleSend(prompt)}
                     />
                   </React.Fragment>
                 );
@@ -5544,6 +5959,8 @@ ${sourceMsg.content}`;
                     status: 'pipeline_pending',
                     timestamp: Date.now() + idx, // ensure sequence
                     parentId, // link them sequentially!
+                    prompt: step.prompt,
+                    revisedPrompt: step.prompt,
                     position: { x: nodeX, y: nodeY },
                     canvasId: typeof localStorage !== 'undefined' ? (localStorage.getItem("aistudio_active_canvas_id") || "default") : "default",
                     config: {
@@ -5914,7 +6331,7 @@ ${sourceMsg.content}`;
             </button>
 
             {/* 输入框卡片 */}
-            <div className={`flex-1 min-w-0 bg-white rounded-2xl border transition-all overflow-hidden ${
+            <div className={`flex-1 min-w-0 bg-white rounded-2xl border transition-all relative ${
               isDraggingFile 
                 ? 'border-2 border-dashed border-emerald-500 shadow-lg shadow-emerald-50 bg-emerald-50/5' 
                 : 'border-gray-200 focus-within:border-gray-300 shadow-sm'
@@ -6116,14 +6533,77 @@ ${sourceMsg.content}`;
                 </div>
               )}
 
+              {showSkillDropdown && filteredSkills.length > 0 && (
+                <div className="absolute bottom-[100%] left-4 mb-2 z-50 w-80 bg-white border border-gray-100 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-2 max-h-64 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  <div className="px-2.5 py-1 text-[10px] font-black tracking-wider text-gray-400 uppercase border-b border-gray-50 mb-1 flex items-center justify-between select-none">
+                    <span>💡 智选 & 调用 SKILL</span>
+                    <span className="text-[9px] lowercase text-gray-300">#skill</span>
+                  </div>
+                  {filteredSkills.map((skill, idx) => {
+                    const isSelected = idx === skillDropdownIndex;
+                    const hasIconEmoji = skill.icon && skill.name.startsWith(skill.icon);
+                    const displayName = hasIconEmoji ? skill.name : (skill.icon ? `${skill.icon} ${skill.name}` : skill.name);
+                    
+                    return (
+                      <div
+                        key={skill.id}
+                        onClick={() => handleSelectSkill(skill)}
+                        onMouseEnter={() => setSkillDropdownIndex(idx)}
+                        className={`flex flex-col px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'bg-indigo-50 text-indigo-900' 
+                            : 'hover:bg-gray-50 text-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold">{displayName}</span>
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded font-black border ${
+                            skill.category === 'image' 
+                              ? 'bg-cyan-50 text-cyan-600 border-cyan-100/60' 
+                              : skill.category === 'video' 
+                                ? 'bg-purple-50 text-purple-600 border-purple-100/60' 
+                                : 'bg-emerald-50 text-emerald-600 border-emerald-100/60'
+                          }`}>
+                            {skill.category === 'image' ? '生图' : skill.category === 'video' ? '视频' : '文本'}
+                          </span>
+                        </div>
+                        {skill.desc && (
+                          <span className="text-[10px] text-gray-400 mt-0.5 truncate max-w-full">
+                            {skill.desc}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <textarea
                 ref={textareaRef}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
+                  if (showSkillDropdown && filteredSkills.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setSkillDropdownIndex(prev => (prev + 1) % filteredSkills.length);
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setSkillDropdownIndex(prev => (prev - 1 + filteredSkills.length) % filteredSkills.length);
+                    } else if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault();
+                      if (filteredSkills[skillDropdownIndex]) {
+                        handleSelectSkill(filteredSkills[skillDropdownIndex]);
+                      }
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setShowSkillDropdown(false);
+                    }
+                  } else {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
                   }
                 }}
                 onPaste={(e) => {
@@ -6186,7 +6666,7 @@ ${sourceMsg.content}`;
                 
                 <div className="flex items-center space-x-3">
                   <button 
-                    onClick={handleSend}
+                    onClick={() => handleSend()}
                     disabled={(!inputValue.trim() && analyzerFiles.length === 0) || isGenerating}
                     className={`px-6 py-2 rounded-xl font-bold transition-all text-sm flex items-center space-x-2 ${
                       (inputValue.trim() || analyzerFiles.length > 0) && !isGenerating
@@ -6762,19 +7242,8 @@ ${sourceMsg.content}`;
                     {/* Media Body */}
                     <div className="flex-1 flex flex-col items-center justify-center relative w-full h-full min-h-[30vh]">
                       {selectedMedia.type === 'file' ? (
-                        <div className="w-full max-w-4xl max-h-[70vh] bg-[#1a1b24] p-8 overflow-y-auto rounded-2xl border border-white/10 custom-scrollbar text-slate-300">
-                          <div className="flex items-center space-x-3 mb-6 pb-4 border-b border-white/10">
-                            <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-xl flex items-center justify-center border border-indigo-500/20">
-                              <FileText className="w-6 h-6 text-indigo-400" />
-                            </div>
-                            <div>
-                              <h3 className="text-white font-bold text-lg">{selectedMedia.content || '文件预览'}</h3>
-                              <p className="text-slate-500 text-xs uppercase tracking-widest font-mono">TEXT/PLAIN</p>
-                            </div>
-                          </div>
-                          <div className="prose prose-invert prose-sm max-w-none">
-                            <FileContent url={selectedMedia.url!} />
-                          </div>
+                        <div className="w-full max-w-4xl h-full flex flex-col justify-center">
+                          <OfficePreviewer url={selectedMedia.url!} filename={selectedMedia.content || '未命名文档'} />
                         </div>
                       ) : (
                         <div className="flex flex-col items-center w-fit max-w-full">

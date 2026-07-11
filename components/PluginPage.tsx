@@ -10,17 +10,31 @@ import {
   Edit2,
   Trash2,
   RefreshCw,
-  Clock
+  Clock,
+  Sparkles,
+  Code,
+  Play,
+  Save,
+  Plus,
+  ChevronRight,
+  Cpu,
+  Layers,
+  AlertCircle,
+  Wand2,
+  Send,
+  X
 } from 'lucide-react';
 import { AiSkill } from '../skills/types';
 import { PLUGINS } from '../plugin';
 import { safeJson } from '../lib/fetch';
+import { WebSandbox } from './os/WebSandbox';
 
-const getPluginCategory = (id: string): 'text' | 'image' | 'video' => {
+const getPluginCategory = (id: string, fallback?: 'text' | 'image' | 'video' | 'all'): 'text' | 'image' | 'video' | 'all' => {
   const saved = localStorage.getItem(`plugin_category_${id}`);
-  if (saved === 'text' || saved === 'image' || saved === 'video') {
+  if (saved === 'text' || saved === 'image' || saved === 'video' || saved === 'all') {
     return saved;
   }
+  if (fallback) return fallback;
   if (id === 'camera-control') return 'video';
   return 'image';
 };
@@ -33,6 +47,51 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
   const [customSkills, setCustomSkills] = useState<AiSkill[]>([]);
   const [tick, setTick] = useState(0);
   const forceUpdate = () => setTick(t => t + 1);
+
+  // Navigation Tab State: 'browse' | 'all' | 'workshop'
+  const [activeTab, setActiveTab] = useState<'browse' | 'all' | 'workshop'>('browse');
+
+  // Workshop States
+  const [workshopSelectedId, setWorkshopSelectedId] = useState<string>('new');
+  const [workshopCode, setWorkshopCode] = useState<string>(`// ✨ 欢迎来到 AI 插件工坊！
+// 在左侧输入提示词，大模型将自动为您生成功能完备的 React 插件。
+// 您也可以在此处直接修改代码，并点击右侧实时预览！
+
+import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
+import { Sparkles, Activity } from 'lucide-react';
+
+function App() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-55 p-6 text-center select-none">
+      <div className="p-8 bg-white/90 backdrop-blur-md rounded-3xl shadow-xl border border-slate-100 max-w-sm w-full space-y-4">
+        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto animate-bounce">
+          <Sparkles className="w-6 h-6" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-800">AI 插件渲染器就绪</h2>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          请在左侧配置大模型，输入你奇妙的创意构想，或者选择推荐预设快速启动。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);`);
+
+  const [workshopPrompt, setWorkshopPrompt] = useState<string>('');
+  const [selectedModelSlot, setSelectedModelSlot] = useState<string>('script');
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [showCodeEditor, setShowCodeEditor] = useState<boolean>(true);
+  const [workshopError, setWorkshopError] = useState<string | null>(null);
+
+  // Workshop Save Form State
+  const [saveFormName, setSaveFormName] = useState<string>('');
+  const [saveFormDesc, setSaveFormDesc] = useState<string>('');
+  const [saveFormIcon, setSaveFormIcon] = useState<string>('✨');
+  const [saveFormCategory, setSaveFormCategory] = useState<'text' | 'image' | 'video' | 'all'>('all');
+  const [showSavePluginModal, setShowSavePluginModal] = useState<boolean>(false);
 
   const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>(() => {
     const saved = localStorage.getItem('selected_plugin_ids');
@@ -60,7 +119,7 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editIcon, setEditIcon] = useState('');
-  const [editCategory, setEditCategory] = useState<'text' | 'image' | 'video'>('image');
+  const [editCategory, setEditCategory] = useState<'text' | 'image' | 'video' | 'all'>('image');
 
   const fetchSkills = async () => {
     const token = localStorage.getItem('token');
@@ -147,7 +206,7 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
     setEditName(plugin.name);
     setEditDesc(plugin.desc);
     setEditIcon(plugin.icon || '⚙️');
-    setEditCategory(getPluginCategory(plugin.id));
+    setEditCategory(getPluginCategory(plugin.id, plugin.category));
   };
 
   const handleSaveEdit = () => {
@@ -172,6 +231,19 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
 
   const handleDeleteConfirm = (id: string) => {
     try {
+      // Check if it is a user plugin
+      const userPluginsStr = localStorage.getItem('user_plugins');
+      if (userPluginsStr) {
+        const userPlugins = JSON.parse(userPluginsStr);
+        const filtered = userPlugins.filter((p: any) => p.id !== id);
+        if (filtered.length !== userPlugins.length) {
+          localStorage.setItem('user_plugins', JSON.stringify(filtered));
+          setDeletingPluginId(null);
+          window.dispatchEvent(new CustomEvent('skills-changed'));
+          return;
+        }
+      }
+
       const deletedIds = JSON.parse(localStorage.getItem('deleted_system_plugins') || '[]');
       if (!deletedIds.includes(id)) {
         deletedIds.push(id);
@@ -192,21 +264,183 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
     try {
       const deleted = localStorage.getItem('deleted_system_plugins');
       const edited = localStorage.getItem('edited_system_plugins');
+      const user = localStorage.getItem('user_plugins');
       const hasDeleted = deleted && JSON.parse(deleted).length > 0;
       const hasEdited = edited && Object.keys(JSON.parse(edited)).length > 0;
-      return !!(hasDeleted || hasEdited);
+      const hasUser = user && JSON.parse(user).length > 0;
+      return !!(hasDeleted || hasEdited || hasUser);
     } catch {
       return false;
     }
   };
 
   const handleResetAllPlugins = () => {
-    if (window.confirm('确认要恢复所有官方插件的默认设置吗？')) {
+    if (window.confirm('确认要恢复所有官方插件并删除所有自建插件吗？')) {
       localStorage.removeItem('deleted_system_plugins');
       localStorage.removeItem('edited_system_plugins');
+      localStorage.removeItem('user_plugins');
       window.dispatchEvent(new CustomEvent('skills-changed'));
       window.dispatchEvent(new CustomEvent('selected-skill-changed', { detail: { skillId: activeSkillId } }));
       window.location.reload();
+    }
+  };
+
+  // Workshop logic: load custom plugin code
+  const handleWorkshopLoadPlugin = (id: string) => {
+    setWorkshopSelectedId(id);
+    if (id === 'new') {
+      setWorkshopCode(`// ✨ 欢迎来到 AI 插件工坊！
+// 在左侧输入提示词，大模型将自动为您生成功能完备的 React 插件。
+// 您也可以在此处直接修改代码，并点击右侧实时预览！
+
+import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
+import { Sparkles, Activity } from 'lucide-react';
+
+function App() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-55 p-6 text-center select-none">
+      <div className="p-8 bg-white/90 backdrop-blur-md rounded-3xl shadow-xl border border-slate-100 max-w-sm w-full space-y-4">
+        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto animate-bounce">
+          <Sparkles className="w-6 h-6" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-800">AI 插件渲染器就绪</h2>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          请在左侧配置大模型，输入你奇妙的创意构想，或者选择推荐预设快速启动。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);`);
+      setSaveFormName('');
+      setSaveFormDesc('');
+      setSaveFormIcon('✨');
+      setSaveFormCategory('all');
+    } else {
+      const userPlugins = JSON.parse(localStorage.getItem('user_plugins') || '[]');
+      const matched = userPlugins.find((p: any) => p.id === id);
+      if (matched) {
+        // Extract code from instruction
+        let savedCode = '';
+        const matchToken = 'Please use the following code as reference: ';
+        const tokenIdx = matched.instruction.indexOf(matchToken);
+        if (tokenIdx !== -1) {
+          savedCode = matched.instruction.substring(tokenIdx + matchToken.length);
+        } else {
+          savedCode = matched.instruction;
+        }
+        setWorkshopCode(savedCode);
+        setSaveFormName(matched.name);
+        setSaveFormDesc(matched.desc);
+        setSaveFormIcon(matched.icon || '✨');
+        setSaveFormCategory(matched.category || 'all');
+      }
+    }
+  };
+
+  // Workshop dynamic generation call
+  const handleWorkshopGenerate = async () => {
+    if (!workshopPrompt.trim()) {
+      setWorkshopError('请输入构想提示词');
+      return;
+    }
+    setIsGenerating(true);
+    setWorkshopError(null);
+
+    const token = localStorage.getItem('token');
+    try {
+      const isIncremental = workshopSelectedId !== 'new' || workshopCode.includes('function App');
+      const body = {
+        prompt: workshopPrompt,
+        existingCode: isIncremental ? workshopCode : undefined,
+        modelSlot: selectedModelSlot
+      };
+
+      const res = await fetch('/api/plugins/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || '生成失败，请检查模型连接');
+      }
+
+      const data = await res.json();
+      if (data.success && data.code) {
+        setWorkshopCode(data.code);
+        setWorkshopPrompt('');
+        // Suggest automatic values if saving a brand new plugin
+        if (workshopSelectedId === 'new' && !saveFormName) {
+          // extract name placeholder
+          const tempName = workshopPrompt.substring(0, 10) + '...';
+          setSaveFormName(tempName);
+        }
+      } else {
+        throw new Error('未返回有效的生成代码');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setWorkshopError(err.message || '网络连接或模型API配置有误');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Workshop save action
+  const handleWorkshopSave = (closeModalAfter?: boolean) => {
+    if (!saveFormName.trim()) {
+      alert('请先输入插件名称');
+      return;
+    }
+
+    const userPlugins = JSON.parse(localStorage.getItem('user_plugins') || '[]');
+    const isNew = workshopSelectedId === 'new';
+    const pluginId = isNew ? 'custom_' + Date.now().toString() : workshopSelectedId;
+
+    const savedPayload = {
+      id: pluginId,
+      name: saveFormName,
+      desc: saveFormDesc,
+      icon: saveFormIcon,
+      instruction: `[Generative UI Plugin: ${saveFormName}] Please use the following code as reference: ${workshopCode}`,
+      isPublic: true,
+      isSystem: false,
+      isInstalled: true,
+      category: saveFormCategory,
+      status: 'approved'
+    };
+
+    if (isNew) {
+      userPlugins.push(savedPayload);
+    } else {
+      const idx = userPlugins.findIndex((p: any) => p.id === pluginId);
+      if (idx !== -1) {
+        userPlugins[idx] = savedPayload;
+      } else {
+        userPlugins.push(savedPayload);
+      }
+    }
+
+    localStorage.setItem('user_plugins', JSON.stringify(userPlugins));
+    localStorage.setItem(`plugin_category_${pluginId}`, saveFormCategory);
+    
+    // Sync selecting new plugin
+    if (isNew) {
+      setWorkshopSelectedId(pluginId);
+    }
+    
+    window.dispatchEvent(new CustomEvent('skills-changed'));
+    alert('🎉 插件已成功保存并立即启用！');
+    if (closeModalAfter === true) {
+      setShowSavePluginModal(false);
     }
   };
 
@@ -215,156 +449,377 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
     return skill.name.toLowerCase().includes(q) || skill.desc.toLowerCase().includes(q);
   });
 
+  const installedPluginsCount = PLUGINS.filter(p => selectedPluginIds.includes(p.id)).length;
+  const displayedList = activeTab === 'browse'
+    ? aiStudioList.filter(skill => selectedPluginIds.includes(skill.id))
+    : aiStudioList;
+
+  const customSavedPluginsList = JSON.parse(localStorage.getItem('user_plugins') || '[]');
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-[#fcfcfd]">
       {/* Sub header for searching & actions */}
-      <div className="bg-white border-b border-gray-100 px-8 py-4 flex items-center justify-between shrink-0 shadow-2xs">
-        <div>
-          {user?.role === 'admin' && hasLocalOverrides() && (
-            <button
-              onClick={handleResetAllPlugins}
-              className="flex items-center space-x-1.5 px-3 py-1.5 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100/80 border border-amber-200/60 rounded-xl transition-colors cursor-pointer"
-              title="恢复所有被删除或修改的官方默认插件"
+      <div className="bg-white border-b border-gray-100 px-8 py-4 flex flex-col md:flex-row md:items-center md:justify-between shrink-0 gap-4 shadow-2xs">
+        {/* Navigation Dropdown */}
+        <div className="relative flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200/60 shadow-2xs">
+          <label className="text-[11px] font-bold text-slate-500 px-2.5 select-none">板块导航:</label>
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as 'browse' | 'all' | 'workshop')}
+            className="text-xs font-bold text-slate-800 bg-white border border-slate-200/80 rounded-lg px-3 py-1.5 focus:border-indigo-500 outline-none cursor-pointer pr-8 select-none shadow-2xs"
+          >
+            <option value="browse">🧩 浏览器已装插件 ({installedPluginsCount})</option>
+            <option value="all">📦 全部插件 ({PLUGINS.length})</option>
+            <option value="workshop">✨ AI 插件工坊 (Beta)</option>
+          </select>
+        </div>
+
+        {activeTab !== 'workshop' ? (
+          <div className="flex items-center justify-between md:justify-end gap-3 flex-1">
+            <div>
+              {user?.role === 'admin' && hasLocalOverrides() && (
+                <button
+                  onClick={handleResetAllPlugins}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100/80 border border-amber-200/60 rounded-xl transition-colors cursor-pointer"
+                  title="恢复所有被删除或修改的官方默认插件"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="font-semibold">重置插件配置</span>
+                </button>
+              )}
+            </div>
+            <div className="relative flex items-center w-full sm:w-64 md:w-72 group">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 transition-colors group-focus-within:text-indigo-500 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="搜索 plugin 功能..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-xs pl-9 pr-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/40 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 focus:outline-none rounded-xl transition-all shadow-2xs"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center space-x-3 flex-1 justify-end">
+            <span className="text-xs text-slate-500">
+              ⚙️ 当前工作空间：
+            </span>
+            <select
+              value={workshopSelectedId}
+              onChange={(e) => handleWorkshopLoadPlugin(e.target.value)}
+              className="text-xs border border-slate-200 bg-white rounded-xl px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-w-48"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span className="font-semibold">重置官方插件</span>
-            </button>
-          )}
-        </div>
-        <div className="relative flex items-center w-full sm:w-64 md:w-72 group">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 transition-colors group-focus-within:text-indigo-500 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="搜索 plugin 功能..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-9 pr-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/40 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 focus:outline-none rounded-xl transition-all shadow-2xs"
-          />
-        </div>
+              <option value="new">✨ 新建自定义插件</option>
+              {customSavedPluginsList.map((p: any) => (
+                <option key={p.id} value={p.id}>
+                  {p.icon || '📦'} {p.name} (自建)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {/* Grid view content */}
-      <div className="flex-1 overflow-y-auto p-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-300">
-          {aiStudioList.map((skill) => (
-            <div 
-              key={skill.id}
-              className={`p-5 bg-white border rounded-2xl shadow-xs transition-all flex flex-col justify-between hover:shadow-md hover:translate-y-[-2px] ${
-                activeSkillId === skill.id 
-                  ? 'border-indigo-200 ring-1 ring-indigo-200 bg-indigo-50/5' 
-                  : 'border-gray-100'
-              }`}
-            >
-              <div>
-                <div className="flex items-start justify-between">
-                  <div className="truncate pr-2">
-                    <h3 className="text-sm font-bold text-gray-900 flex items-center flex-wrap gap-1.5">
-                      <span>{skill.name}</span>
-                      {skill.isSystem && (
-                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100/55 rounded-md shrink-0">
-                          官方默认
-                        </span>
-                      )}
-                    </h3>
-                    <p className="text-[10px] text-gray-400 mt-1 flex items-center">
-                      <UserIcon className="w-3 h-3 mr-1 text-gray-300" />
-                      {skill.isSystem ? '朱睿 开发团队' : `${skill.creatorName || '团队自制'}`}
-                    </p>
-                  </div>
-
-                  {user?.role === 'admin' && (
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleStartEdit(skill);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-                        title="编辑插件"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeletingPluginId(skill.id);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-                        title="删除插件"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+      {activeTab !== 'workshop' ? (
+        /* Grid view content */
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-300">
+            {displayedList.map((skill) => (
+              <div 
+                key={skill.id}
+                className={`p-5 bg-white border rounded-2xl shadow-xs transition-all flex flex-col justify-between hover:shadow-md hover:translate-y-[-2px] ${
+                  activeSkillId === skill.id 
+                    ? 'border-indigo-200 ring-1 ring-indigo-200 bg-indigo-50/5' 
+                    : 'border-gray-100'
+                }`}
+              >
+                <div>
+                  <div className="flex items-start justify-between">
+                    <div className="truncate pr-2">
+                      <h3 className="text-sm font-bold text-gray-900 flex items-center flex-wrap gap-1.5">
+                        <span className="text-lg mr-1">{skill.icon || '🧩'}</span>
+                        <span>{skill.name}</span>
+                        {skill.isSystem && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100/55 rounded-md shrink-0">
+                            官方默认
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-[10px] text-gray-400 mt-1 flex items-center">
+                        <UserIcon className="w-3 h-3 mr-1 text-gray-300" />
+                        {skill.isSystem ? '朱睿 开发团队' : `${skill.creatorName || '团队自制'}`}
+                      </p>
                     </div>
-                  )}
-                </div>
-                
-                <p className="text-[12px] text-gray-600 mt-4 leading-relaxed bg-gray-50/50 p-3.5 rounded-2xl border border-gray-100/40 min-h-[64px] block">
-                  {skill.desc || '暂无描述。'}
-                </p>
 
-                {skill.customOptions && skill.customOptions.length > 0 ? (
-                  <div className="mt-3 p-3 bg-indigo-50/30 rounded-2xl border border-indigo-100/30 space-y-1.5">
-                    <div className="text-[10px] font-bold text-indigo-600 flex items-center space-x-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                      <span>🧩 专属功能配置参数</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {skill.customOptions.map((opt: any) => (
-                        <span key={opt.id} className="text-[9px] font-medium px-2 py-0.5 bg-white text-gray-600 border border-gray-100 rounded-lg shadow-2xs" title={opt.choices.join(', ')}>
-                          {opt.name}: <span className="text-indigo-600 font-bold">{opt.choices.length} 个选项</span>
-                        </span>
-                      ))}
-                    </div>
+                    {(user?.role === 'admin' || !skill.isSystem) && (
+                      <div className="flex items-center space-x-1 shrink-0">
+                        {skill.isSystem && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEdit(skill);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                            title="编辑插件"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingPluginId(skill.id);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                          title="删除插件"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="mt-3 p-2.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center space-x-1 text-slate-400 select-none">
-                    <span className="text-[10px]">⚙️ 标准通用模式（无额外参数）</span>
-                  </div>
-                )}
-              </div>
+                  
+                  <p className="text-[12px] text-gray-600 mt-4 leading-relaxed bg-gray-50/50 p-3.5 rounded-2xl border border-gray-100/40 min-h-[64px] block">
+                    {skill.desc || '暂无描述。'}
+                  </p>
 
-              <div className="flex items-center justify-between border-t border-gray-50 mt-5 pt-3.5">
-                <span className="text-[10px] flex items-center font-semibold">
-                  {skill.isPublic ? (
-                    <>
-                      <Globe className="w-3.5 h-3.5 mr-1 text-emerald-500" />
-                      <span className="text-emerald-500">公开共享中</span>
-                    </>
+                  {skill.customOptions && skill.customOptions.length > 0 ? (
+                    <div className="mt-3 p-3 bg-indigo-50/30 rounded-2xl border border-indigo-100/30 space-y-1.5">
+                      <div className="text-[10px] font-bold text-indigo-600 flex items-center space-x-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                        <span>🧩 专属功能配置参数</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {skill.customOptions.map((opt: any) => (
+                          <span key={opt.id} className="text-[9px] font-medium px-2 py-0.5 bg-white text-gray-600 border border-gray-100 rounded-lg shadow-2xs" title={opt.choices.join(', ')}>
+                            {opt.name}: <span className="text-indigo-600 font-bold">{opt.choices.length} 个选项</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   ) : (
-                    <>
-                      <Lock className="w-3.5 h-3.5 mr-1 text-gray-400" />
-                      <span className="text-gray-400">仅自己可见</span>
-                    </>
+                    <div className="mt-3 p-2.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center space-x-1 text-slate-400 select-none">
+                      <span className="text-[10px]">⚙️ 标准自适应渲染模式</span>
+                    </div>
                   )}
-                </span>
+                </div>
 
-                <div className="flex items-center space-x-1.5">
-                  <button
-                    onClick={() => {
-                      handleSelectSkill(skill.id);
-                    }}
-                    className={`px-2.5 py-1.5 text-[11px] font-bold rounded-xl flex items-center space-x-1 border transition-all cursor-pointer ${
-                      selectedPluginIds.includes(skill.id)
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-100/55'
-                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 active:scale-95'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5 animate-in zoom-in-50 duration-200" />
-                    <span>{selectedPluginIds.includes(skill.id) ? '已选中' : '选择'}</span>
-                  </button>
+                <div className="flex items-center justify-between border-t border-gray-50 mt-5 pt-3.5">
+                  <span className="text-[10px] flex items-center font-semibold">
+                    {selectedPluginIds.includes(skill.id) ? (
+                      <>
+                        <Globe className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                        <span className="text-emerald-500">已直接启用</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                        <span className="text-slate-400">未启用</span>
+                      </>
+                    )}
+                  </span>
+
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => {
+                        handleSelectSkill(skill.id);
+                      }}
+                      className={`px-2.5 py-1.5 text-[11px] font-bold rounded-xl flex items-center space-x-1 border transition-all cursor-pointer ${
+                        selectedPluginIds.includes(skill.id)
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-100/55'
+                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 active:scale-95'
+                      }`}
+                    >
+                      {selectedPluginIds.includes(skill.id) && (
+                        <Check className="w-3.5 h-3.5 animate-in zoom-in-50 duration-200" />
+                      )}
+                      <span>{selectedPluginIds.includes(skill.id) ? '已选中' : '选择'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
 
-          {aiStudioList.length === 0 && (
-            <div className="col-span-full py-16 text-center bg-white border border-gray-100 rounded-3xl">
-              <Bot className="w-14 h-14 text-gray-300 mx-auto stroke-1" />
-              <p className="text-sm text-gray-400 mt-4 font-medium">没有匹配的功能技能！</p>
-            </div>
-          )}
+            {displayedList.length === 0 && (
+              <div className="col-span-full py-16 text-center bg-white border border-gray-100 rounded-3xl">
+                <Bot className="w-14 h-14 text-gray-300 mx-auto stroke-1" />
+                <p className="text-sm text-gray-400 mt-4 font-medium">
+                  {activeTab === 'browse' ? '您当前未启用任何插件！请前往「全部插件」中选择并启用。' : '没有匹配的功能技能！'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* AI Plugin Workshop Panel */
+        <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-[#f8fafc] animate-in fade-in duration-300">
+          {/* Workshop Control Sidebar */}
+          <div className="w-full md:w-[380px] border-r border-slate-200/60 bg-white flex flex-col overflow-y-auto shrink-0 p-6 space-y-6">
+            <div className="space-y-1">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center">
+                <Wand2 className="w-4 h-4 mr-1.5 text-indigo-500 animate-pulse" />
+                <span>AI 提词开发面板</span>
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                用自然语言直接向大模型描述需求，一键完成插件的代码开发。
+              </p>
+            </div>
+
+            {/* Prompt Input & Presets */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700">
+                  开发构想提示词
+                </label>
+                <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                  支持多次迭代对话
+                </span>
+              </div>
+              <textarea
+                value={workshopPrompt}
+                onChange={(e) => setWorkshopPrompt(e.target.value)}
+                placeholder="例如：制作一个水晶质感的倒计时时钟，支持番茄钟，秒表..."
+                rows={4}
+                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-none leading-relaxed"
+                disabled={isGenerating}
+              />
+              
+              {/* Quick Launch Presets */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-bold text-slate-400 block">推荐快速启动预设：</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: '⏱️ 番茄倒计时', prompt: '制作一个高级玻璃拟态数字时钟，包含时分秒、毫秒秒表 and 25分钟番茄钟计时器。配色高级，自带微动效。' },
+                    { label: '🎨 精美色卡生成', prompt: '制作一个配色卡生成器，随机生成5种相近色卡，点击一键复制Hex，同时使用Recharts显示色彩饱和雷达图。' },
+                    { label: '✏️ 白板涂鸦本', prompt: '制作一个画布涂鸦画板。支持鼠标拖动或触控绘画，提供5个高级预设颜色，可以调粗细，支持清空和撤销。' },
+                    { label: '📊 销售大盘看板', prompt: '使用Recharts制作一个精美的公司业务销售看板。包含趋势折线图和产品销量占比饼图。内置随机波动刷新。' }
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setWorkshopPrompt(preset.prompt)}
+                      className="text-[9px] font-semibold px-2 py-1 bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200/60 rounded-lg transition-all cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Model Slot Selector */}
+              <div className="space-y-2 pt-2 border-t border-slate-100/50">
+                <label className="text-xs font-bold text-slate-700 flex items-center">
+                  <Cpu className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                  <span>选择大模型提供商</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedModelSlot}
+                    onChange={(e) => setSelectedModelSlot(e.target.value)}
+                    className="w-full text-xs px-3.5 py-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white cursor-pointer font-bold text-slate-700 appearance-none shadow-xs"
+                  >
+                    <option value="script">主力通用模型 (Gemini / 推荐)</option>
+                    <option value="claudeSonnet">高阶推理大模型 (Claude Sonnet)</option>
+                    <option value="gptImage">兼容架构模型 (GPT / 兼容渠道)</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 bg-slate-50/80 p-2.5 rounded-lg border border-slate-100/80 leading-normal">
+                  {selectedModelSlot === 'script' && '💡 高效，高鲁棒性，运行流畅，推荐日常开发使用'}
+                  {selectedModelSlot === 'claudeSonnet' && '🧠 深度编程，逻辑完美，适合处理复杂机制与算法'}
+                  {selectedModelSlot === 'gptImage' && '⚙️ 兼容标准 API 架构，支持第三方自定义通道与代理配置'}
+                </p>
+              </div>
+
+              {workshopError && (
+                <div className="p-3 bg-red-50 text-red-700 text-[11px] rounded-xl border border-red-100 flex items-start space-x-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{workshopError}</span>
+                </div>
+              )}
+
+              <button
+                onClick={handleWorkshopGenerate}
+                disabled={isGenerating || !workshopPrompt.trim()}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
+              >
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>AI 正在全力编译代码...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{workshopSelectedId === 'new' && !workshopCode.includes('App()') ? '生成全新插件' : '对话迭代/优化代码'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Code Viewer & Sandbox Live Iframe Render */}
+          <div className="flex-1 flex flex-col md:flex-row min-h-0">
+            {/* Monospace Code Editor Pane */}
+            {showCodeEditor && (
+              <div className="w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-slate-200 bg-[#0f172a] h-1/2 md:h-full">
+                <div className="h-11 bg-slate-900 border-b border-slate-800 flex items-center px-4 justify-between shrink-0">
+                  <span className="text-[11px] font-mono font-bold text-slate-400 flex items-center space-x-1.5">
+                    <Code className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>PLUGIN_SOURCE_CODE.tsx</span>
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[9px] font-mono text-emerald-500 bg-emerald-950 px-2 py-0.5 border border-emerald-900/60 rounded-md">
+                      EDITABLE
+                    </span>
+                  </div>
+                </div>
+                <textarea
+                  value={workshopCode}
+                  onChange={(e) => setWorkshopCode(e.target.value)}
+                  className="flex-1 w-full p-4 font-mono text-[11px] leading-relaxed text-slate-350 bg-slate-950 border-none outline-none resize-none focus:ring-0 overflow-y-auto selection:bg-slate-800 selection:text-white"
+                  style={{ color: '#cbd5e1' }}
+                />
+              </div>
+            )}
+
+            {/* Live Render Area */}
+            <div className={`flex-1 flex flex-col h-1/2 md:h-full`}>
+              <div className="h-11 bg-white border-b border-slate-200/60 flex items-center px-4 justify-between shrink-0">
+                <span className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                  <Play className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                  <span>实时测试沙盒 (WebGL Sandbox Iframe)</span>
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setShowSavePluginModal(true)}
+                    className="px-2.5 py-1 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-750 hover:shadow-xs active:scale-[0.98] rounded-lg border-0 transition-all flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Save className="w-3 h-3" />
+                    <span>另存为插件</span>
+                  </button>
+                  <button
+                    onClick={() => setShowCodeEditor(!showCodeEditor)}
+                    className="px-2.5 py-1 text-[10px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 transition-colors"
+                  >
+                    {showCodeEditor ? '隐藏代码' : '显示代码'}
+                  </button>
+                  <span className="text-[9px] font-black text-slate-400 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded-md">
+                    240 FPS
+                  </span>
+                </div>
+              </div>
+              <div className="flex-1 p-6 min-h-0 bg-slate-100/50">
+                <WebSandbox code={workshopCode} className="h-full shadow-md rounded-2xl overflow-hidden border border-slate-200/60" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deletingPluginId && (
@@ -446,17 +901,18 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
               {/* Plugin Type / Category */}
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-700">插件类型</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
                     { id: 'image', label: '图片类型', icon: '🖼️', desc: '用于生成/控制图像' },
                     { id: 'text', label: '文本类型', icon: '✍️', desc: '用于文本处理/提示' },
-                    { id: 'video', label: '视频类型', icon: '🎥', desc: '用于视频运镜/调节' }
+                    { id: 'video', label: '视频类型', icon: '🎥', desc: '用于视频运镜/调节' },
+                    { id: 'all', label: '功能类型', icon: '🧩', desc: '用于多功能/混合工具' }
                   ].map((cat) => (
                     <button
                       key={cat.id}
                       type="button"
-                      onClick={() => setEditCategory(cat.id as 'text' | 'image' | 'video')}
-                      className={`flex flex-col items-center justify-center p-3.5 border rounded-xl transition-all cursor-pointer text-center ${
+                      onClick={() => setEditCategory(cat.id as 'text' | 'image' | 'video' | 'all')}
+                      className={`flex flex-col items-center justify-center p-3 sm:p-3.5 border rounded-xl transition-all cursor-pointer text-center ${
                         editCategory === cat.id
                           ? 'border-indigo-500 bg-indigo-50/40 text-indigo-700 ring-2 ring-indigo-500/20'
                           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -485,6 +941,96 @@ export const PluginPage: React.FC<PluginPageProps> = ({ user }) => {
                 className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm cursor-pointer"
               >
                 保存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Plugin Modal (Figure 1 Form as a modal dialog) */}
+      {showSavePluginModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-100 mx-4 animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
+              <div className="flex items-center space-x-2">
+                <Save className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-bold text-slate-900">另存为自定义插件</h3>
+              </div>
+              <button
+                onClick={() => setShowSavePluginModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-50 cursor-pointer border-0 bg-transparent flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+              <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100/60">
+                💾 <strong>打包与注册：</strong>将当前的测试代码与配置保存为一个全新的、可随时在系统对话和工作流中调用的多模态自定义插件。
+              </p>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1 space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">图标</label>
+                  <input
+                    type="text"
+                    value={saveFormIcon}
+                    onChange={(e) => setSaveFormIcon(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all text-center font-bold"
+                    placeholder="✨"
+                  />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">插件名称</label>
+                  <input
+                    type="text"
+                    value={saveFormName}
+                    onChange={(e) => setSaveFormName(e.target.value)}
+                    className="w-full text-xs px-3.5 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all font-semibold"
+                    placeholder="例如: 高级数字时钟"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">插件分类</label>
+                <select
+                  value={saveFormCategory}
+                  onChange={(e) => setSaveFormCategory(e.target.value as any)}
+                  className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all font-semibold text-slate-700 cursor-pointer"
+                >
+                  <option value="all">通用插件 (All)</option>
+                  <option value="text">文字大模型辅助 (Text)</option>
+                  <option value="image">图像延展画布 (Image)</option>
+                  <option value="video">视频运镜剪辑 (Video)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">插件功能描述</label>
+                <textarea
+                  value={saveFormDesc}
+                  onChange={(e) => setSaveFormDesc(e.target.value)}
+                  rows={3}
+                  className="w-full text-xs px-3.5 py-2 border border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all resize-none"
+                  placeholder="简短说明插件所解决的业务需求..."
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-4 border-t border-slate-100 shrink-0">
+              <button
+                onClick={() => setShowSavePluginModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all cursor-pointer border-0"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleWorkshopSave(true)}
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-sm flex items-center space-x-1 cursor-pointer border-0"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>保存并部署为全局可用插件</span>
               </button>
             </div>
           </div>

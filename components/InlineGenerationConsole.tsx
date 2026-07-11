@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { PromptWithMentions } from "./PromptWithMentions";
-import { getAssetCategory } from "./workflow-utils";
+import { getAssetCategory, safeParseParentIds } from "./workflow-utils";
 import { getThumbnailUrl } from "../services/utils";
 import { PLUGINS } from "../plugin";
 import { Config } from "../types";
@@ -466,9 +466,43 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
     }
   };
 
+  // Check if button should be disabled (unexecutable)
+  const hasParentConnection = item.parentId ? (safeParseParentIds(item.parentId).length > 0) : false;
+
+  const references = isImage ? (imageConfig.referenceImages || []) : (videoConfig.referenceAssets || []);
+  const hasTrayAssets = !isImage && references.some(
+    (a) => a.type === "image" || a.type === "video",
+  );
+  const hasFrameAssets = !isImage && !!((videoConfig as any).image || (videoConfig as any).lastFrame);
+  const hasImageRef = isImage && references.length > 0;
+  
+  const currentPrompt = promptText || "";
+  const mentionRegex = /@([^\s@]+)/g;
+  const hasMentions = currentPrompt.match(mentionRegex);
+  
+  const isSeedance = !isImage && (videoConfig.model === "seedance2.0" || videoConfig.model === "seedance-mini" || videoConfig.model === "seedance2.5");
+  const isMissingRequiredRef =
+    isSeedance &&
+    !hasTrayAssets &&
+    !hasFrameAssets &&
+    !hasMentions;
+
+  const hasContent =
+    currentPrompt.trim() ||
+    hasTrayAssets ||
+    hasFrameAssets ||
+    hasImageRef;
+
+  const isDisabled =
+    isGenerating ||
+    isOptimizing ||
+    !hasContent ||
+    isMissingRequiredRef ||
+    hasParentConnection;
+
   // Submit trigger
   const handleGenerateSubmit = async () => {
-    if (isGenerating || isOptimizing) return;
+    if (isDisabled) return;
     if (isImage) {
       await onGenerateImage(
         { ...imageConfig, prompt: promptText },
@@ -730,8 +764,6 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
       }
     }
   };
-
-  const references = isImage ? (imageConfig.referenceImages || []) : (videoConfig.referenceAssets || []);
 
   return (
     <div 
@@ -1941,11 +1973,24 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
           {/* Submit generation circle button */}
           <button
             onClick={handleGenerateSubmit}
-            disabled={isGenerating || isOptimizing}
-            className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer ${
-              isGenerating || isOptimizing
-                ? "bg-indigo-400/80 cursor-not-allowed"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow-indigo-600/10"
+            disabled={isDisabled}
+            title={
+              hasParentConnection
+                ? "⚠️ 该节点已被上游节点连接，内容/生成必须由上游节点驱动"
+                : isMissingRequiredRef
+                  ? "RH-SD2.0 仅支持多参生成，请添加素材或在提示词中@引用素材"
+                  : !hasContent
+                    ? "请输入提示词或添加参考素材"
+                    : isImage
+                      ? "执行绘画生成"
+                      : "执行影音生成"
+            }
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all relative ${
+              isDisabled
+                ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 cursor-not-allowed shadow-none"
+                : isImage
+                  ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg hover:shadow-indigo-600/10 active:scale-95 cursor-pointer"
+                  : "bg-purple-600 hover:bg-purple-700 text-white shadow-lg hover:shadow-purple-600/10 active:scale-95 cursor-pointer"
             }`}
           >
             {isGenerating ? (

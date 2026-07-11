@@ -45,13 +45,15 @@ interface PointAndShootEditorProps {
   onClose: () => void;
   onSave: (markedImageData: string) => void;
   initialImage?: string | null;
+  isEmbedded?: boolean;
 }
 
 export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({ 
   isOpen, 
   onClose, 
   onSave,
-  initialImage 
+  initialImage,
+  isEmbedded = false
 }) => {
   const getCleanImageUrl = (src: string | null | undefined): string | null => {
     if (!src) return null;
@@ -980,23 +982,15 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
   const selectedPerson = persons.find(p => p.id === selectedId);
   const selectedLine = lines.find(l => l.id === selectedLineId);
 
-  return (
-    <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="absolute inset-0 bg-black/80 backdrop-blur-md"
-      />
-      
-      <motion.div 
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 20 }}
-        className="relative w-full max-w-[95vw] h-[90vh] bg-[#1a1a1a] rounded-[32px] border border-white/10 shadow-2xl overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+  const renderInner = () => (
+    <div 
+      className={cn(
+        "relative bg-[#1a1a1a] border border-white/10 overflow-hidden flex flex-col w-full text-white",
+        isEmbedded ? "h-[380px] rounded-2xl" : "h-[90vh] rounded-[32px] shadow-2xl"
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {!isEmbedded && (
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-red-500/10 rounded-2xl flex items-center justify-center">
@@ -1011,6 +1005,7 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+      )}
 
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar Tools (Left) */}
@@ -1500,30 +1495,71 @@ export const PointAndShootEditor: React.FC<PointAndShootEditorProps> = ({
           )}
         </div>
 
-        <div className="p-6 border-t border-white/10 flex items-center justify-between bg-black/20">
-          <div className="flex items-center space-x-2 text-[10px] font-bold text-slate-500">
-             <div className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-               <User className="w-2.5 h-2.5 text-white" />
-             </div>
-             <span>提示：在场景中放置对应颜色的小人，AI将自动匹配对应角色的光影与比例。</span>
-          </div>
-          <div className="flex items-center space-x-3">
-             <button 
-               onClick={onClose}
-               className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
-             >
-                取消
-             </button>
+        <div className={cn("border-t border-white/10 flex items-center justify-between bg-black/20 shrink-0", isEmbedded ? "p-3" : "p-6")}>
+          {!isEmbedded ? (
+            <div className="flex items-center space-x-2 text-[10px] font-bold text-slate-500">
+               <div className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                 <User className="w-2.5 h-2.5 text-white" />
+               </div>
+               <span>提示：在场景中放置对应颜色的小人，AI将自动匹配对应角色的光影与比例。</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1.5 text-[9px] font-bold text-slate-500">
+               <div className="w-3.5 h-3.5 bg-red-500 rounded-full flex items-center justify-center shrink-0">
+                 <User className="w-2 h-2 text-white" />
+               </div>
+               <span>拖动标记人物</span>
+            </div>
+          )}
+          <div className="flex items-center space-x-2 shrink-0">
+             {!isEmbedded && (
+               <button 
+                 onClick={onClose}
+                 className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+               >
+                  取消
+               </button>
+             )}
              <button 
                onClick={handleSave}
                disabled={!image}
-               className="px-8 py-3 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-red-500/20 flex items-center space-x-2"
+               className={cn(
+                 "bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-black uppercase tracking-widest transition-all shadow-lg flex items-center space-x-2 shrink-0",
+                 isEmbedded 
+                   ? "px-4 py-2 rounded-xl text-[10px] shadow-red-500/10" 
+                   : "px-8 py-3 rounded-2xl text-xs shadow-red-500/20"
+               )}
              >
-                <Check className="w-4 h-4" />
+                <Check className={cn(isEmbedded ? "w-3 h-3" : "w-4 h-4")} />
                 <span>部署人物并保存</span>
              </button>
           </div>
         </div>
+      </div>
+  );
+
+  if (isEmbedded) {
+    return renderInner();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/80 backdrop-blur-md"
+      />
+      
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+        className="relative w-full max-w-[95vw] h-[90vh] bg-[#1a1a1a] rounded-[32px] border border-white/10 shadow-2xl overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {renderInner()}
       </motion.div>
     </div>
   );

@@ -38,7 +38,7 @@ import {
   Area
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { ConfigModal } from './ConfigModal';
+import { GlobalApiConfigTab } from './GlobalApiConfigTab';
 import { DEFAULT_CONFIG } from '../constants';
 import { Config } from '../types';
 import { safeJson } from '../lib/fetch';
@@ -61,9 +61,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  // Global API Config State
-  const [globalApiConfig, setGlobalApiConfig] = useState<Config>(DEFAULT_CONFIG);
-  const [isSavingGlobalApi, setIsSavingGlobalApi] = useState(false);
+
 
   // Database Config State
   const [dbConfig, setDbConfig] = useState<any>({
@@ -129,21 +127,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
     }
   };
 
-  const fetchGlobalApiConfig = async () => {
-    try {
-      const res = await fetch('/api/admin/settings/api-config', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await safeJson(res);
-      if (data && Object.keys(data).length > 0) {
-        setGlobalApiConfig({ ...DEFAULT_CONFIG, ...data });
-      } else {
-        setGlobalApiConfig(DEFAULT_CONFIG);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
+
 
   const fetchStatus = async () => {
     try {
@@ -192,8 +176,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
       fetchDbConfig();
     } else if (activeTab === 'oss') {
       fetchOssConfig();
-    } else if (activeTab === 'api') {
-      fetchGlobalApiConfig();
     } else if (activeTab === 'stats') {
       fetchStats();
     }
@@ -371,31 +353,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
     }
   };
 
-  const handleSaveGlobalApi = async (newConfig: Config) => {
-    setIsSavingGlobalApi(true);
-    try {
-      const res = await fetch('/api/admin/settings/api-config', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(newConfig)
-      });
-      const data = await safeJson(res);
-      if (res.ok && data) {
-        setGlobalApiConfig(newConfig);
-        if (onUserUpdate) onUserUpdate();
-        // ConfigModal will show success feedback
-      } else if (data) {
-        alert(data.error || '保存失败');
-      }
-    } catch (err) {
-      alert('保存失败');
-    } finally {
-      setIsSavingGlobalApi(false);
-    }
-  };
+
 
   return (
     <div className="h-full overflow-y-auto p-6 scroll-smooth custom-scrollbar">
@@ -853,22 +811,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
           </div>
         </div>
       ) : activeTab === 'api' ? (
-        <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
-          <div className="p-8 border-b border-gray-100 flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center">
-              <Settings className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">全局接口配置</h2>
-              <p className="text-zinc-500 text-sm">设置系统默认的 API 接口配置，当用户未配置自己的接口时将使用此配置。</p>
-            </div>
-          </div>
-          <ConfigModal 
-            config={globalApiConfig} 
-            setConfig={handleSaveGlobalApi} 
-            isPage={true} 
-          />
-        </div>
+        <GlobalApiConfigTab onUserUpdate={onUserUpdate} />
       ) : (
         <motion.div
           initial={{ opacity: 0, y: 20 }}

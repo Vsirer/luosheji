@@ -1,27 +1,18 @@
-import { imageAgent, IMAGE_AGENT_SYSTEM_INSTRUCTION } from "./imageAgent";
-import { videoAgent } from "./videoAgent";
-import { directorAgent } from "./directorAgent";
-import { scriptAgent } from "./scriptAgent";
-import { scriptAnalyzerAgent } from "./scriptAnalyzerAgent";
-import { scriptRewriterAgent } from "./scriptRewriterAgent";
+import { imageAgent, IMAGE_AGENT_SYSTEM_INSTRUCTION } from "../components/agents/imageAgent";
+import { videoAgent } from "../components/agents/videoAgent";
+import { directorAgent } from "../components/agents/directorAgent";
 import { assetService } from "./assetService";
 import { PipelineData, Asset, Segment, Config, ScriptAnalysis, SmartImageConfig, SmartImageResult } from "../types";
 
 export { 
   IMAGE_AGENT_SYSTEM_INSTRUCTION, 
   assetService,
-  scriptAgent,
-  scriptAnalyzerAgent,
-  scriptRewriterAgent,
 };
 
 export class PipelineService {
   public async callApi(type: 'script' | 'image' | 'video', method: string, body: any, config?: Config): Promise<any> {
     if (type === 'image') return imageAgent.callApi(type, method, body, config);
     if (type === 'video') return videoAgent.callApi(type, method, body, config);
-    
-    // Dispatch to specific script agents if possible, or fallback to director
-    if (body?.config?.systemInstruction?.includes('编剧')) return scriptAgent.callApi(type, method, body, config);
     
     return directorAgent.callApi(type, method, body, config);
   }

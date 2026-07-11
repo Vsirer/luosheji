@@ -31,9 +31,10 @@ interface PanoramaCreationModalProps {
   onGenerate: (prompt: string, referenceImages?: any[], negativePrompt?: string) => Promise<string | null>;
   initialReferenceImages?: any[];
   initialPrompt?: string;
+  isEmbedded?: boolean;
 }
 
-export const PanoramaCreationModal: React.FC<PanoramaCreationModalProps> = ({ isOpen, onClose, onGenerate, initialReferenceImages, initialPrompt }) => {
+export const PanoramaCreationModal: React.FC<PanoramaCreationModalProps> = ({ isOpen, onClose, onGenerate, initialReferenceImages, initialPrompt, isEmbedded = false }) => {
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const generatingRef = React.useRef(false);
@@ -188,33 +189,25 @@ export const PanoramaCreationModal: React.FC<PanoramaCreationModalProps> = ({ is
     setError(null);
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ scale: 0.9, y: 20, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
-            exit={{ scale: 0.9, y: 20, opacity: 0 }}
-            className={cn(
-              "relative bg-white rounded-[32px] shadow-2xl overflow-hidden flex flex-col md:flex-row transition-all duration-500 ease-in-out",
-              (isGenerating || generatedUrl) 
-                ? "w-full max-w-4xl h-[80vh] md:h-[600px]" 
-                : "w-full max-w-md h-auto"
-            )}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Left Side: Input & Controls */}
-            <div className={cn(
-              "flex flex-col w-full",
-              (isGenerating || generatedUrl) ? "md:w-1/2 p-8 border-r border-gray-100 h-full" : "p-8"
-            )}>
+  const renderInner = () => (
+    <div
+      className={cn(
+        "relative bg-white overflow-hidden flex flex-col md:flex-row transition-all duration-500 ease-in-out text-gray-800",
+        isEmbedded 
+          ? "w-full h-[380px] rounded-2xl border border-gray-100" 
+          : ((isGenerating || generatedUrl) 
+              ? "w-full max-w-4xl h-[80vh] md:h-[600px] rounded-[32px] shadow-2xl" 
+              : "w-full max-w-md h-auto rounded-[32px] shadow-2xl")
+      )}
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Left Side: Input & Controls */}
+      <div className={cn(
+        "flex flex-col w-full overflow-y-auto no-scrollbar",
+        isEmbedded 
+          ? "p-4 h-full" 
+          : ((isGenerating || generatedUrl) ? "md:w-1/2 p-8 border-r border-gray-100 h-full" : "p-8")
+      )}>
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
@@ -431,7 +424,24 @@ export const PanoramaCreationModal: React.FC<PanoramaCreationModalProps> = ({ is
                 ) : null}
               </div>
             )}
-          </motion.div>
+    </div>
+  );
+
+  if (isEmbedded) {
+    return renderInner();
+  }
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          onClick={onClose}
+        >
+          {renderInner()}
         </motion.div>
       )}
     </AnimatePresence>

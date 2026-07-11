@@ -1,4 +1,4 @@
-import { assetAgent } from "./assetAgent";
+import { assetAgent } from "../components/agents/assetAgent";
 import { Asset, Config, PipelineData, Segment } from "../types";
 
 export class AssetService {

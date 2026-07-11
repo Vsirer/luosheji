@@ -23,6 +23,8 @@ import {
   Compass,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Share2,
   Maximize2,
   Palette,
@@ -34,10 +36,13 @@ import {
   PenTool,
   Code,
   Wand2,
+  TableProperties,
+  Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { HistoryItem, SmartImageConfig, SmartVideoConfig } from "../types";
 import { getThumbnailUrl } from "../services/utils";
+import { generatePPT, generatePDF, generateExcel, parseDocumentContent } from "../lib/documentGenerator";
 import {
   getHistoryItemClassification,
   getActualCanvasCardSizeAndPort,
@@ -50,6 +55,10 @@ import { twMerge } from "tailwind-merge";
 import { WebSandbox } from "./os/WebSandbox";
 import { GenerativeUI } from "./os/GenerativeUI";
 import { PLUGINS } from "../plugin";
+import { CameraControl } from "./CameraControl";
+import { PointAndShootEditor } from "./PointAndShootEditor";
+import { PerspectiveSim } from "./PerspectiveSim";
+import { PanoramaCreationModal } from "./PanoramaCreationModal";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -178,6 +187,30 @@ export const HistoryCard = React.memo(
     const [isDraggingThisCard, setIsDraggingThisCard] = useState(false);
     const [localPos, setLocalPos] = useState({ x: item.position?.x || 0, y: item.position?.y || 0 });
     const [localText, setLocalText] = useState(item.revisedPrompt || "");
+    const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+    const [pptViewMode, setPptViewMode] = useState<"slides" | "outline">("slides");
+    const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
+    const [excelActiveSheet, setExcelActiveSheet] = useState(0);
+    const [excelSearch, setExcelSearch] = useState("");
+    const [excelViewMode, setExcelViewMode] = useState<"sheets" | "outline">("sheets");
+    const [isPPTExcelMaximized, setIsPPTExcelMaximized] = useState(false);
+
+    const isPPT = item.config?.skillId === "office-pitch-deck" || 
+                  (item.revisedPrompt && (
+                    item.revisedPrompt.includes("【幻灯片") || 
+                    item.revisedPrompt.includes("# 幻灯片") || 
+                    item.revisedPrompt.includes("Slide") ||
+                    item.revisedPrompt.includes("逐字稿") ||
+                    item.revisedPrompt.includes("Speaker Notes")
+                  ));
+
+    const isExcel = item.config?.skillId === "office-excel-report" || 
+                    (item.revisedPrompt && (
+                      item.revisedPrompt.includes("【工作表") || 
+                      item.revisedPrompt.includes("|---") || 
+                      item.revisedPrompt.includes("| Column") ||
+                      /\|\s*:?-+:?\s*\|/.test(item.revisedPrompt)
+                    ));
 
     const isInlineConsoleActive = isSelected && !item.config?.isPipelineNode && (
       (item.status === "draft_new" && (item.type === "image" || item.type === "video")) ||
@@ -411,6 +444,7 @@ export const HistoryCard = React.memo(
     const [showDissectDropdown, setShowDissectDropdown] = useState(false);
     const [showExportDropdown, setShowExportDropdown] = useState(false);
     const [showDecomposeDropdown, setShowDecomposeDropdown] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -604,6 +638,13 @@ export const HistoryCard = React.memo(
     };
 
     useEffect(() => {
+      const status = (item as any).status;
+      if (status === "running" || status === "pipeline_completed" || status === "success") {
+        setIsRetrying(false);
+      }
+    }, [(item as any).status]);
+
+    useEffect(() => {
       const calculateTimeLeft = () => {
         const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
         const now = Date.now();
@@ -634,9 +675,10 @@ export const HistoryCard = React.memo(
       return () => clearInterval(timer);
     }, [item.timestamp]);
 
-    if ((item as any).status === "pipeline_pending" || (item as any).status === "pending" || (item as any).status === "running" || (item.config as any)?.isPipelineNode && ((item as any).status === "error" || (item as any).status === "failed")) {
-      const isRunning = (item as any).status === "running";
-      const isFailed = (item as any).status === "error" || (item as any).status === "failed";
+    if ((item as any).status === "pipeline_pending" || (item as any).status === "pending" || (item as any).status === "running" || (item as any).status === "pipeline_completed" || (item.config as any)?.isPipelineNode && ((item as any).status === "error" || (item as any).status === "failed")) {
+      const isRunning = (item as any).status === "running" || isRetrying;
+      const isFailed = ((item as any).status === "error" || (item as any).status === "failed") && !isRetrying;
+      const isCompleted = (item as any).status === "pipeline_completed" && !isRetrying;
       const isPending = (item as any).status === "pipeline_pending" || (item as any).status === "pending";
       const nodeType = item.type; // 'image' | 'video' | 'gen_script' | 'audio'
       const title = item.config?.title || "意图执行节点";
@@ -657,12 +699,15 @@ export const HistoryCard = React.memo(
             }}
             whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 100 }}
             className={cn(
-              "absolute w-[360px] h-[340px] group bg-zinc-900/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border-2 border-dashed will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none flex flex-col justify-between",
-              nodeType === "video" 
-                ? "border-purple-500/60 hover:border-purple-400 hover:bg-zinc-900/100" 
-                : nodeType === "image" 
-                  ? "border-indigo-500/60 hover:border-indigo-400 hover:bg-zinc-900/100" 
-                  : "border-teal-500/60 hover:border-teal-400 hover:bg-zinc-900/100",
+              "absolute w-[360px] h-[340px] group bg-zinc-900/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border-2 will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none flex flex-col justify-between",
+              isCompleted ? "border-emerald-500/50 hover:border-emerald-400" : "border-dashed",
+              !isCompleted && (
+                nodeType === "video" 
+                  ? "border-purple-500/60 hover:border-purple-400 hover:bg-zinc-900/100" 
+                  : nodeType === "image" 
+                    ? "border-indigo-500/60 hover:border-indigo-400 hover:bg-zinc-900/100" 
+                    : "border-teal-500/60 hover:border-teal-400 hover:bg-zinc-900/100"
+              ),
               isMultiSelected || isSelected
                 ? "border-rose-500 ring-4 ring-rose-500/20 shadow-[0_0_20px_rgba(244,63,94,0.3)]"
                 : ""
@@ -703,21 +748,27 @@ export const HistoryCard = React.memo(
                 <div className="flex items-center space-x-2">
                   <div className={cn(
                     "w-2 h-2 rounded-full",
-                    nodeType === "video" 
-                      ? "bg-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-                      : nodeType === "image" 
-                        ? "bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.8)]" 
-                        : "bg-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.8)]"
+                    isCompleted
+                      ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                      : (nodeType === "video" 
+                        ? "bg-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
+                        : nodeType === "image" 
+                          ? "bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.8)]" 
+                          : "bg-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.8)]")
                   )} />
                   <span className={cn(
                     "text-[11px] font-bold uppercase tracking-widest font-mono",
-                    nodeType === "video"
-                      ? "text-purple-300"
-                      : nodeType === "image"
-                        ? "text-indigo-300"
-                        : "text-teal-300"
+                    isCompleted
+                      ? "text-emerald-300"
+                      : (nodeType === "video"
+                        ? "text-purple-300"
+                        : nodeType === "image"
+                          ? "text-indigo-300"
+                          : "text-teal-300")
                   )}>
-                    {nodeType === "video" ? "🎬 视频合成占位" : nodeType === "image" ? "🎨 原画生图占位" : "🧠 策划脚本占位"}
+                    {isCompleted 
+                      ? "✅ 需求蓝图 (已完成)" 
+                      : (nodeType === "video" ? "🎬 视频合成占位" : nodeType === "image" ? "🎨 原画生图占位" : "🧠 策划脚本占位")}
                   </span>
                 </div>
                 
@@ -739,11 +790,13 @@ export const HistoryCard = React.memo(
               <div className="flex-1 flex flex-col items-center justify-center space-y-3 py-2">
                 <div className={cn(
                   "w-14 h-14 rounded-2xl border flex items-center justify-center transition-transform duration-300 group-hover:scale-105",
-                  nodeType === "video" 
-                    ? "border-purple-500/50 bg-purple-500/10 text-purple-300" 
-                    : nodeType === "image" 
-                      ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300" 
-                      : "border-teal-500/50 bg-teal-500/10 text-teal-300"
+                  isCompleted
+                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                    : (nodeType === "video" 
+                      ? "border-purple-500/50 bg-purple-500/10 text-purple-300" 
+                      : nodeType === "image" 
+                        ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300" 
+                        : "border-teal-500/50 bg-teal-500/10 text-teal-300")
                 )}>
                   {nodeType === "video" && <Film className="w-7 h-7" />}
                   {nodeType === "image" && <ImageIcon className="w-7 h-7" />}
@@ -752,8 +805,14 @@ export const HistoryCard = React.memo(
 
                 <div className="text-center flex flex-col space-y-1">
                   <span className="text-[14px] font-bold text-zinc-100 tracking-wide">{title}</span>
-                  <span className="text-[11px] text-zinc-300 font-medium px-2">
-                    {nodeType === "video" ? "⏳ 等待生图原画就绪后开启合成..." : nodeType === "image" ? "⏳ 等待分镜脚本确立后开启渲染..." : "⏳ 等待品牌创意策略确立中..."}
+                  <span className={cn(
+                    "text-[11px] font-medium px-2",
+                    isCompleted ? "text-emerald-400 font-semibold" : "text-zinc-300"
+                  )}>
+                    {isCompleted 
+                      ? "✅ 策划方案及渲染生成任务已圆满完成！"
+                      : (nodeType === "video" ? "⏳ 等待生图原画就绪后开启合成..." : nodeType === "image" ? "⏳ 等待分镜脚本确立后开启渲染..." : "⏳ 等待品牌创意策略确立中...")
+                    }
                   </span>
                 </div>
               </div>
@@ -766,9 +825,15 @@ export const HistoryCard = React.memo(
                 </p>
               </div>
 
-              <div className="text-center text-[10px] text-zinc-300 font-bold py-1.5 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
-                ⚔️ 已部署至作战沙盘，等待系统正式启动...
-              </div>
+              {isCompleted ? (
+                <div className="text-center text-[10px] text-emerald-400 font-bold py-1.5 border-t border-zinc-800 bg-emerald-950/20 rounded-b-xl">
+                  🟢 需求蓝图及多模态渲染已圆满完成
+                </div>
+              ) : (
+                <div className="text-center text-[10px] text-zinc-300 font-bold py-1.5 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
+                  ⚔️ 已部署至作战沙盘，等待系统正式启动...
+                </div>
+              )}
             </div>
           </motion.div>
         );
@@ -791,7 +856,9 @@ export const HistoryCard = React.memo(
               ? "border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)] animate-pulse" 
               : isFailed
                 ? "border-rose-500 shadow-[0_0_20px_rgba(239,68,68,0.2)]"
-                : "border-zinc-800 hover:border-indigo-500/50 hover:shadow-indigo-500/10",
+                : isCompleted
+                  ? "border-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.15)] bg-zinc-950/98"
+                  : "border-zinc-800 hover:border-indigo-500/50 hover:shadow-indigo-500/10",
             isMultiSelected || isSelected
               ? "border-indigo-600 ring-4 ring-indigo-500/25 shadow-indigo-500/15"
               : ""
@@ -836,14 +903,20 @@ export const HistoryCard = React.memo(
                     ? "bg-blue-400 animate-ping" 
                     : isFailed 
                       ? "bg-rose-500" 
-                      : nodeType === "video" 
-                        ? "bg-purple-500" 
-                        : nodeType === "image" 
-                          ? "bg-indigo-500" 
-                          : "bg-teal-500"
+                      : isCompleted
+                        ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+                        : nodeType === "video" 
+                          ? "bg-purple-500" 
+                          : nodeType === "image" 
+                            ? "bg-indigo-500" 
+                            : "bg-teal-500"
                 )} />
-                <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest font-mono">
+                <span className={cn(
+                  "text-[11px] font-black uppercase tracking-widest font-mono",
+                  isCompleted ? "text-emerald-400" : "text-zinc-400"
+                )}>
                   {nodeType === "video" ? "🎬 视频合成节点" : nodeType === "image" ? "🎨 原画生图节点" : "🧠 策划脚本节点"}
+                  {isCompleted && " (已完成)"}
                 </span>
               </div>
               
@@ -973,17 +1046,51 @@ export const HistoryCard = React.memo(
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Trigger retry custom event
-                      window.dispatchEvent(new CustomEvent('retry-pipeline-step', { detail: { stepId: item.id } }));
+                      setIsRetrying(true);
+                      // Trigger retry custom event with current edit state
+                      window.dispatchEvent(new CustomEvent('retry-pipeline-step', { 
+                        detail: { 
+                          stepId: item.id,
+                          pipelineId: (item.config as any)?.pipelineId,
+                          prompt: prompt,
+                          aspectRatio: aspectRatio,
+                          duration: duration
+                        } 
+                      }));
                     }}
-                    className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[10px] font-bold hover:bg-rose-700 active:scale-95 transition-all"
+                    className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[10px] font-bold hover:bg-rose-700 active:scale-95 transition-all cursor-pointer"
                   >
                     重新执行
                   </button>
                 </div>
               )}
 
-              {!isRunning && !isFailed && (
+              {isCompleted && (
+                <div className="flex items-center justify-between py-1 px-2 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
+                  <span className="text-[10px] text-emerald-400 font-bold">🟢 模块执行圆满完成</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsRetrying(true);
+                      // Trigger retry custom event with current edit state
+                      window.dispatchEvent(new CustomEvent('retry-pipeline-step', { 
+                        detail: { 
+                          stepId: item.id,
+                          pipelineId: (item.config as any)?.pipelineId,
+                          prompt: prompt,
+                          aspectRatio: aspectRatio,
+                          duration: duration
+                        } 
+                      }));
+                    }}
+                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold active:scale-95 transition-all cursor-pointer"
+                  >
+                    重新执行
+                  </button>
+                </div>
+              )}
+
+              {!isRunning && !isFailed && !isCompleted && (
                 <div className="text-center text-[10px] text-zinc-600 font-medium py-1">
                   ⚔️ 已部署至作战沙盘，等待系统正式启动...
                 </div>
@@ -1038,7 +1145,7 @@ export const HistoryCard = React.memo(
           }}
           whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 50 }}
           className={cn(
-            "absolute group bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden",
+            "absolute group bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden history-card-drag-area",
             layoutMode === "semi_auto"
               ? getSemiAutoBorderStyles(item)
               : "hover:border-zinc-700 hover:shadow-2xl hover:shadow-black/60",
@@ -1397,10 +1504,10 @@ export const HistoryCard = React.memo(
         whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 50 }}
         className={cn(
           "absolute group rounded-2xl shadow-2xl border flex flex-col will-change-transform history-card-drag-area transition-[border-color,box-shadow,background-color] duration-200 touch-none",
-          item.type === "gen_script" ? "bg-white" : "bg-zinc-950",
+          (item.type === "gen_script" && !isExcel && !isPPT) ? "bg-white" : "bg-zinc-950",
           layoutMode === "semi_auto"
             ? getSemiAutoBorderStyles(item)
-            : item.type === "gen_script"
+            : (item.type === "gen_script" && !isExcel && !isPPT)
               ? "border-purple-300 shadow-[0_4px_24px_rgba(168,85,247,0.12)] hover:border-purple-400 hover:shadow-purple-400/20"
               : "border-zinc-800/80",
           isMultiSelected || isSelected
@@ -1515,7 +1622,7 @@ export const HistoryCard = React.memo(
           </div>
         )}
 
-        {!item.config?.isSkillNode && !item.config?.isIntegratedModelNode && (
+        {!item.config?.isSkillNode && !item.config?.isIntegratedModelNode && !isExcel && !isPPT && (
           <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
             <div
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-white/90 text-[10px] font-bold cursor-help select-none"
@@ -1525,7 +1632,7 @@ export const HistoryCard = React.memo(
               <span>{timeLeft}</span>
             </div>
 
-            {(item.type as string) !== "video" && !item.videoUrl && (item.type as string) !== "audio" && (
+            {(item.type as string) !== "audio" && (
               <div className="relative no-drag" onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={(e) => {
@@ -1576,10 +1683,14 @@ export const HistoryCard = React.memo(
                       transition={{ duration: 0.1 }}
                       className="absolute top-full mt-1.5 left-0 z-50 w-28 bg-zinc-950/95 border border-zinc-800/80 shadow-2xl backdrop-blur-md rounded-xl p-1 flex flex-col gap-0.5"
                     >
-                      {(item.type === "gen_script"
+                      {((item.type === "gen_script" ||
+                        getHistoryItemClassification(item) === "script" ||
+                        getHistoryItemClassification(item) === "text_asset" ||
+                        getHistoryItemClassification(item) === "shot_prompt")
                         ? [
                             { key: "script", label: "剧本", icon: FileText, color: "text-amber-400 hover:bg-amber-500/10" },
                             { key: "shot_prompt", label: "分镜提示词", icon: Sparkles, color: "text-cyan-400 hover:bg-cyan-500/10" },
+                            { key: "text_asset", label: "资产", icon: Layers, color: "text-emerald-400 hover:bg-emerald-500/10" },
                           ]
                         : [
                             { key: "character", label: "角色", icon: User, color: "text-amber-400 hover:bg-amber-500/10" },
@@ -1680,7 +1791,7 @@ export const HistoryCard = React.memo(
           const plugin = PLUGINS.find((p) => p.id === skillId);
           const isSystemModalPlugin = !!(
             skillId && 
-            (skillId === "perspective-sim" || skillId === "point-and-shoot" || skillId === "camera-control")
+            (skillId === "perspective-sim" || skillId === "point-and-shoot" || skillId === "camera-control" || skillId === "panorama")
           );
           
           const isGenerativeUIPlugin = !!(
@@ -1691,6 +1802,9 @@ export const HistoryCard = React.memo(
               (skillId && (skillId.startsWith("custom_") || skillId === "贪吃蛇" || isSystemModalPlugin))
             )
           );
+
+          // Force system modal plugins to always be displayed in "info" mode within the history card layout
+          const activeMode = isSystemModalPlugin ? "info" : pluginMode;
 
           const pluginCode = extractGenerativeUiCode(item.revisedPrompt || (plugin?.instruction || ""));
 
@@ -1706,50 +1820,12 @@ export const HistoryCard = React.memo(
                     </span>
                   </div>
                   
-                  {/* View options */}
-                  <div className="flex items-center space-x-1" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={() => setPluginMode("info")}
-                      className={cn(
-                        "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all",
-                        pluginMode === "info" ? "bg-indigo-100/80 text-indigo-700" : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                      )}
-                      title="插件信息"
-                    >
-                      信息
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (isSystemModalPlugin) {
-                          onApplyMode?.(skillId, item);
-                        }
-                        setPluginMode("run");
-                        setSandboxKey(prev => prev + 1);
-                      }}
-                      className={cn(
-                        "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all",
-                        pluginMode === "run" ? "bg-indigo-100/80 text-indigo-700 font-bold" : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                      )}
-                      title="运行插件"
-                    >
-                      运行
-                    </button>
-                    <button
-                      onClick={() => setPluginMode("code")}
-                      className={cn(
-                        "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all",
-                        pluginMode === "code" ? "bg-indigo-100/80 text-indigo-700" : "text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                      )}
-                      title="查看代码"
-                    >
-                      代码
-                    </button>
-                  </div>
+                  {/* View options hidden for clean canvas presentation */}
                 </div>
 
                 {/* Card body content */}
                 <div className="flex-1 overflow-hidden relative bg-slate-50/40 p-4">
-                  {pluginMode === "info" && (
+                  {activeMode === "info" && (
                     <div className="w-full h-full flex flex-col justify-between items-center text-center p-2">
                       <div className="my-auto flex flex-col items-center">
                         <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-indigo-100/50 mb-3 animate-pulse">
@@ -1758,44 +1834,56 @@ export const HistoryCard = React.memo(
                         <h4 className="text-xs font-extrabold text-slate-800 tracking-wide mb-1">
                           {item.config?.title || plugin?.name || "未知插件"}
                         </h4>
-                        <p className="text-[10px] text-slate-500 max-w-[240px] leading-relaxed line-clamp-3">
-                          {plugin?.desc || "点击“直接运行”可以在画布中直接体验并交互此插件。"}
-                        </p>
+                        {skillId === "camera-control" && item.config?.cameraParams ? (
+                          <div className="mt-1 w-full text-left bg-slate-100/60 dark:bg-zinc-900/60 p-2 rounded-xl border border-slate-200/50 dark:border-zinc-800 font-sans text-[10px] text-slate-600 dark:text-zinc-300 space-y-1">
+                            <div className="flex justify-between border-b border-slate-200/30 dark:border-zinc-800/30 pb-0.5">
+                              <span className="font-semibold text-slate-400 dark:text-zinc-500">📷 机型:</span>
+                              <span className="font-medium truncate max-w-[130px] text-slate-700 dark:text-zinc-200">{item.config.cameraParams.model}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-200/30 dark:border-zinc-800/30 pb-0.5">
+                              <span className="font-semibold text-slate-400 dark:text-zinc-500">🔍 镜头:</span>
+                              <span className="font-medium truncate max-w-[130px] text-slate-700 dark:text-zinc-200">{item.config.cameraParams.lensType}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-200/30 dark:border-zinc-800/30 pb-0.5">
+                              <span className="font-semibold text-slate-400 dark:text-zinc-500">📏 焦段:</span>
+                              <span className="font-medium truncate max-w-[130px] text-slate-700 dark:text-zinc-200">{item.config.cameraParams.focalLength}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-200/30 dark:border-zinc-800/30 pb-0.5">
+                              <span className="font-semibold text-slate-400 dark:text-zinc-500">🔆 光圈:</span>
+                              <span className="font-medium truncate max-w-[130px] text-slate-700 dark:text-zinc-200">{item.config.cameraParams.aperture}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="font-semibold text-slate-400 dark:text-zinc-500">🎨 影调:</span>
+                              <span className="font-medium truncate max-w-[130px] text-slate-700 dark:text-zinc-200">{item.config.cameraParams.colorTone}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-slate-500 max-w-[240px] leading-relaxed line-clamp-3">
+                            {plugin?.desc || "点击“直接运行”可以在画布中直接体验并交互此插件。"}
+                          </p>
+                        )}
                       </div>
 
-                      <div className="w-full space-y-1.5 mt-auto shrink-0" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                      <div className="w-full mt-auto shrink-0 flex justify-center pb-1" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => {
                             if (isSystemModalPlugin) {
                               onApplyMode?.(skillId, item);
-                            }
-                            setPluginMode("run");
-                            setSandboxKey(prev => prev + 1);
-                          }}
-                          className="w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold rounded-xl text-[11px] transition-all shadow-[0_2px_8px_rgba(79,70,229,0.2)] hover:shadow-[0_4px_12px_rgba(79,70,229,0.3)] active:scale-95 flex items-center justify-center space-x-1"
-                        >
-                          <Play className="w-3 h-3 fill-current" />
-                          <span>立即运行</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (isSystemModalPlugin) {
-                              onApplyMode?.(skillId, item);
-                              setPluginMode("run");
                             } else {
                               setShowFullscreenSandbox(true);
+                              setSandboxKey(prev => prev + 1);
                             }
                           }}
-                          className="w-full py-1 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-[10px] border border-slate-200 transition-all active:scale-95 flex items-center justify-center space-x-1"
+                          className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-[11px] transition-all active:scale-95 shadow-sm hover:shadow-md flex items-center justify-center space-x-1.5 mx-auto"
                         >
-                          <Maximize2 className="w-3 h-3" />
-                          <span>全屏运行</span>
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>打开{item.config?.title || plugin?.name || "插件"}</span>
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {pluginMode === "run" && (
+                  {activeMode === "run" && (
                     <div className="w-full h-full flex flex-col" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                       {pluginCode ? (
                         <div className="flex-1 relative rounded-xl overflow-hidden border border-slate-100 shadow-inner bg-white h-full">
@@ -1806,20 +1894,152 @@ export const HistoryCard = React.memo(
                           />
                         </div>
                       ) : isSystemModalPlugin ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                          <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-2">
-                            <Play className="w-5 h-5 text-indigo-600 animate-pulse fill-indigo-600" />
-                          </div>
-                          <p className="text-[11px] text-slate-700 font-bold mb-1">系统内置插件正在运行中</p>
-                          <p className="text-[9px] text-slate-400 max-w-[200px] leading-relaxed mb-3">
-                            由于此插件为平台级深度交互模块，已通过高精度悬浮弹窗安全载入。
-                          </p>
-                          <button
-                            onClick={() => onApplyMode?.(skillId, item)}
-                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition-all"
-                          >
-                            重新唤起弹窗
-                          </button>
+                        <div className="flex-1 w-full h-full relative absolute inset-0 bg-slate-950">
+                          {skillId === "camera-control" && (
+                            <CameraControl
+                              isEmbedded={true}
+                              initialParams={item.config?.cameraParams}
+                              onClose={() => setPluginMode("info")}
+                              onConfirm={(params) => {
+                                setHistory?.((prev) => prev.map((h) => {
+                                  if (h.id === item.id) {
+                                    const parts = [
+                                      `Camera: ${params.model}`,
+                                      params.lensType !== "无特定镜头" ? `Lens: ${params.lensType}` : "",
+                                      params.focalLength !== "自动" ? `Focal: ${params.focalLength}` : "",
+                                      params.aperture !== "自动" ? `Aperture: ${params.aperture}` : "",
+                                      params.colorTone !== "默认" ? `Tone: ${params.colorTone}` : "",
+                                      params.lighting !== "默认" ? `Lighting: ${params.lighting}` : "",
+                                      params.lightingType !== "默认" ? `LightType: ${params.lightingType}` : "",
+                                    ].filter(Boolean);
+                                    const cameraDesc = `${parts.join(", ")}.`;
+                                    const basePrompt = h.config?.prompt || h.revisedPrompt || "";
+                                    // If basePrompt contains the boilerplate instructions, discard it and use only cameraDesc.
+                                    // Otherwise, we can still use cameraDesc as the absolute source of truth.
+                                    const newPrompt = cameraDesc;
+                                    return {
+                                      ...h,
+                                      revisedPrompt: newPrompt,
+                                      config: {
+                                        ...h.config,
+                                        prompt: newPrompt,
+                                        cameraParams: params
+                                      }
+                                    };
+                                  }
+                                  return h;
+                                }));
+                              }}
+                            />
+                          )}
+                          {(() => {
+                            const parentIds = safeParseParentIds(item.parentId);
+                            const parentItem = parentIds.length > 0 && history ? history.find(h => parentIds.includes(h.id) && (h.imageUrl || h.config?.referenceImages?.[0]?.data)) : null;
+                            const resolvedInitialImage = item.imageUrl || item.config?.referenceImages?.[0]?.data || (parentItem ? (parentItem.imageUrl || parentItem.config?.referenceImages?.[0]?.data) : null);
+                            const resolvedParentRefs = item.config?.referenceImages || (parentItem ? (parentItem.config?.referenceImages || (parentItem.imageUrl ? [{ id: parentItem.id, data: parentItem.imageUrl, mimeType: "image/png", type: "general" }] : [])) : []);
+
+                            return (
+                              <>
+                                {skillId === "point-and-shoot" && (
+                                  <PointAndShootEditor
+                                    isOpen={true}
+                                    isEmbedded={true}
+                                    initialImage={resolvedInitialImage}
+                                    onClose={() => setPluginMode("info")}
+                                    onSave={(markedData) => {
+                                      setHistory?.((prev) => prev.map((h) => {
+                                        if (h.id === item.id) {
+                                          return {
+                                            ...h,
+                                            imageUrl: markedData,
+                                            config: {
+                                              ...h.config,
+                                              markedImage: markedData,
+                                              referenceImages: [
+                                                {
+                                                  id: "marked-scene-" + Date.now(),
+                                                  data: markedData,
+                                                  mimeType: "image/png",
+                                                  type: "environment",
+                                                }
+                                              ]
+                                            }
+                                          };
+                                        }
+                                        return h;
+                                      }));
+                                    }}
+                                  />
+                                )}
+                                {skillId === "perspective-sim" && (
+                                  <PerspectiveSim
+                                    isEmbedded={true}
+                                    initialImage={resolvedInitialImage}
+                                    onClose={() => setPluginMode("info")}
+                                    onGenerate={(params) => {
+                                      setHistory?.((prev) => prev.map((h) => {
+                                        if (h.id === item.id) {
+                                          return {
+                                            ...h,
+                                            revisedPrompt: params.prompt,
+                                            config: {
+                                              ...h.config,
+                                              prompt: params.prompt,
+                                              perspectiveParams: params
+                                            }
+                                          };
+                                        }
+                                        return h;
+                                      }));
+                                    }}
+                                  />
+                                )}
+                                {skillId === "panorama" && (
+                                  <PanoramaCreationModal
+                                    isOpen={true}
+                                    isEmbedded={true}
+                                    initialPrompt={item.config?.prompt || item.revisedPrompt}
+                                    initialReferenceImages={resolvedParentRefs}
+                                    onClose={() => setPluginMode("info")}
+                                    onGenerate={async (p, refs, neg) => {
+                                      if (generateImage) {
+                                        const res = await generateImage({
+                                          prompt: p,
+                                          negativePrompt: neg || item.config?.negativePrompt,
+                                          gridMode: "panorama",
+                                          aspectRatio: "2:1",
+                                          imageSize: "4K",
+                                          referenceImages: refs && refs.length > 0 ? refs : resolvedParentRefs,
+                                        }, item.position, item.id);
+                                        
+                                        if (res && res.imageUrl) {
+                                          setHistory?.((prev) => prev.map((h) => {
+                                            if (h.id === item.id) {
+                                              return {
+                                                ...h,
+                                                imageUrl: res.imageUrl,
+                                                revisedPrompt: p,
+                                                config: {
+                                                  ...h.config,
+                                                  prompt: p,
+                                                  negativePrompt: neg,
+                                                  referenceImages: refs
+                                                }
+                                              };
+                                            }
+                                            return h;
+                                          }));
+                                          return res.imageUrl;
+                                        }
+                                        return null;
+                                      }
+                                      return null;
+                                    }}
+                                  />
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
@@ -1850,7 +2070,7 @@ export const HistoryCard = React.memo(
                     </div>
                   )}
 
-                  {pluginMode === "code" && (
+                  {activeMode === "code" && (
                     <div className="w-full h-full flex flex-col relative" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                       <div className="flex-1 overflow-hidden relative">
                         <div className="absolute inset-0">
@@ -1935,6 +2155,959 @@ export const HistoryCard = React.memo(
                           </div>
                         )}
                       </div>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+              </div>
+            );
+          }
+
+          // Detect if this is a PPT slide node
+          const isPPT = item.config?.skillId === "office-pitch-deck" || 
+                        (item.revisedPrompt && (
+                          item.revisedPrompt.includes("【幻灯片") || 
+                          item.revisedPrompt.includes("# 幻灯片") || 
+                          item.revisedPrompt.includes("Slide") ||
+                          item.revisedPrompt.includes("逐字稿") ||
+                          item.revisedPrompt.includes("Speaker Notes")
+                        ));
+
+          if (isPPT) {
+            const parsed = parseDocumentContent(localText);
+            const slidesCount = parsed.sections.length + 1; // Slide 0 is Cover, Slides 1..N are Sections
+
+            // Ensure slide index is in bounds
+            const activeSlideIndex = Math.min(Math.max(0, currentSlideIndex), slidesCount - 1);
+
+            return (
+              <div className="relative aspect-[3/4] sm:aspect-square overflow-hidden bg-zinc-950 cursor-pointer group/script rounded-2xl flex flex-col border border-zinc-800 shadow-xl">
+                {/* PPT Top Bar */}
+                <div className="px-4 py-3 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between shrink-0">
+                  <div className="flex items-center space-x-1.5 overflow-hidden">
+                    <span className="text-sm shrink-0">📊</span>
+                    <span className="text-[11px] font-black text-zinc-100 truncate max-w-[120px] sm:max-w-[150px]">
+                      {parsed.title || "商业演示文稿"}
+                    </span>
+                  </div>
+
+                  {/* Mode switcher tabs */}
+                  <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800/80 shrink-0">
+                    <button
+                      onClick={() => setPptViewMode("slides")}
+                      className={cn(
+                        "px-2 py-1 rounded text-[9px] font-extrabold transition-all",
+                        pptViewMode === "slides"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      )}
+                    >
+                      放映
+                    </button>
+                    <button
+                      onClick={() => setPptViewMode("outline")}
+                      className={cn(
+                        "px-2 py-1 rounded text-[9px] font-extrabold transition-all",
+                        pptViewMode === "outline"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      )}
+                    >
+                      编辑大纲
+                    </button>
+                  </div>
+
+                  {/* Export Trigger */}
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await generatePPT(localText, `pptx-${item.id}`);
+                        } catch (err) {
+                          console.error("PPT generation failed", err);
+                        }
+                      }}
+                      className="p-1.5 bg-zinc-950 hover:bg-indigo-900/60 hover:text-indigo-300 text-zinc-400 rounded-lg border border-zinc-800 transition-all flex items-center space-x-1 cursor-pointer"
+                      title="下载 PPT 文件"
+                    >
+                      <Download className="w-3 h-3 text-indigo-400" />
+                      <span className="hidden sm:inline text-[9px] font-bold">下载</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsPPTExcelMaximized(true);
+                      }}
+                      className="p-1.5 bg-zinc-950 hover:bg-indigo-900/60 hover:text-indigo-300 text-zinc-400 rounded-lg border border-zinc-800 transition-all flex items-center space-x-1 cursor-pointer"
+                      title="全屏放大"
+                    >
+                      <Maximize2 className="w-3 h-3 text-indigo-400" />
+                      <span className="hidden sm:inline text-[9px] font-bold">放大</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* PPT Content Card Area */}
+                <div className="flex-1 overflow-hidden relative flex flex-col bg-zinc-950 p-3">
+                  {pptViewMode === "outline" ? (
+                    // Outline / Text Editor Mode
+                    <div className="w-full h-full relative" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                      <textarea
+                        value={localText}
+                        onChange={(e) => {
+                          const newText = e.target.value;
+                          setLocalText(newText);
+                          setHistory?.((prev) =>
+                            prev.map((h) =>
+                              h.id === item.id ? { ...h, revisedPrompt: newText } : h
+                            )
+                          );
+                          syncToCloud?.({ ...item, revisedPrompt: newText });
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="w-full h-full p-3 bg-zinc-900 rounded-xl border border-zinc-800 focus:border-indigo-500 font-mono text-[10px] sm:text-[11px] leading-relaxed text-zinc-300 resize-none outline-none transition-all no-drag custom-scrollbar"
+                        placeholder="在此处直接输入或编辑 PPT 内容大纲..."
+                      />
+                    </div>
+                  ) : (
+                    // Interactive Slide Preview Mode
+                    <div className="flex-1 flex flex-col relative overflow-hidden bg-zinc-900 rounded-xl border border-zinc-800/60 shadow-inner">
+                      {activeSlideIndex === 0 ? (
+                        // Cover Slide Render
+                        <div className="flex-1 flex flex-col justify-center p-6 text-left relative overflow-hidden bg-gradient-to-br from-indigo-950 via-slate-950 to-indigo-900">
+                          {/* Grid background pattern */}
+                          <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e1b4b_1px,transparent_1px),linear-gradient(to_bottom,#1e1b4b_1px,transparent_1px)] bg-[size:2rem_2rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-35 pointer-events-none" />
+                          
+                          <div className="relative z-10 space-y-4">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[9px] font-black text-indigo-400 tracking-wider uppercase">
+                              意图操作系统 • 商业中心
+                            </span>
+                            
+                            <h2 className="text-sm sm:text-lg font-black text-white leading-tight tracking-tight drop-shadow-md">
+                              {parsed.title || "商业演示策划案"}
+                            </h2>
+                            
+                            <div className="w-12 h-1 bg-amber-500 rounded-full" />
+                            
+                            <p className="text-[10px] text-zinc-400 font-medium">
+                              演示文稿一键编译 • 由小逻智脑协助创作
+                            </p>
+                          </div>
+                        </div>
+                      ) : (() => {
+                        // Content Slide Render
+                        const sec = parsed.sections[activeSlideIndex - 1];
+                        if (!sec) {
+                          return (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                              <Loader2 className="w-6 h-6 text-zinc-500 animate-spin mb-1" />
+                              <p className="text-xs text-zinc-400">正在生成设计中...</p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="flex-1 flex flex-col justify-between p-4 text-left bg-zinc-900 relative">
+                            {/* Slide Title */}
+                            <div className="shrink-0 mb-2.5 border-b border-zinc-800 pb-1.5">
+                              <h3 className="text-xs font-black text-zinc-100 flex items-center space-x-1.5">
+                                <span className="text-indigo-400 font-mono">0{activeSlideIndex}</span>
+                                <span className="truncate">{sec.title}</span>
+                              </h3>
+                            </div>
+
+                            {/* Slide Content Body */}
+                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                              {sec.table && sec.table.headers.length > 0 ? (
+                                // Table layout
+                                <div className="overflow-x-auto my-1 border border-zinc-800 rounded-lg no-drag" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                                  <table className="w-full text-[9px] sm:text-[10px] text-left border-collapse">
+                                    <thead>
+                                      <tr className="bg-zinc-800 border-b border-zinc-800">
+                                        {sec.table.headers.map((h, hIdx) => (
+                                          <th key={hIdx} className="p-1.5 font-bold text-zinc-200">
+                                            {h}
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {sec.table.rows.map((row, rIdx) => (
+                                        <tr key={rIdx} className="border-b border-zinc-800/40 hover:bg-zinc-800/10">
+                                          {row.map((cell, cIdx) => (
+                                            <td key={cIdx} className="p-1.5 text-zinc-400">
+                                              {cell}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : sec.bullets.length > 0 ? (
+                                // Bullets layout
+                                <ul className="space-y-1.5 text-[10px] sm:text-xs">
+                                  {sec.bullets.map((bullet, bIdx) => (
+                                    <li key={bIdx} className="flex items-start space-x-1.5 text-zinc-300">
+                                      <span className="text-indigo-400 mt-1 shrink-0">✦</span>
+                                      <span className="leading-relaxed">{bullet}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                // Plain text layout
+                                <div className="space-y-1.5 text-[10px] sm:text-xs text-zinc-300 leading-relaxed">
+                                  {sec.content.map((p, pIdx) => (
+                                    <p key={pIdx}>{p}</p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Optional Speaker Notes Overlay */}
+                            {showSpeakerNotes && (
+                              <div className="absolute inset-x-0 bottom-0 max-h-[55%] bg-zinc-950/95 border-t border-zinc-800 p-3 overflow-y-auto animate-in slide-in-from-bottom duration-150 rounded-b-xl z-20 no-drag" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between border-b border-zinc-800 pb-1 mb-1.5">
+                                  <span className="text-[8px] font-black tracking-wider text-amber-400 uppercase">🎙️ 宣讲逐字稿 (Speaker Notes)</span>
+                                  <button onClick={() => setShowSpeakerNotes(false)} className="text-[8px] text-zinc-500 hover:text-zinc-300 font-extrabold">隐藏</button>
+                                </div>
+                                <p className="text-[10px] leading-relaxed text-zinc-400 font-medium">
+                                  {sec.content.length > 0 ? sec.content.join("\n") : "（幻灯片提纲已备好，宣讲稿正在提炼中...）"}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Slide footer */}
+                            <div className="shrink-0 flex items-center justify-between text-[8px] font-bold text-zinc-500 pt-1.5 border-t border-zinc-800/40">
+                              <span>小逻 AI 商业脑</span>
+                              <span>{activeSlideIndex} / {slidesCount - 1}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Slide Interactive Controller */}
+                      <div className="bg-zinc-950/90 border-t border-zinc-800 px-3 py-1.5 flex items-center justify-between shrink-0">
+                        <div className="flex items-center space-x-1">
+                          <button
+                            disabled={activeSlideIndex === 0}
+                            onClick={() => setCurrentSlideIndex(prev => Math.max(0, prev - 1))}
+                            className="p-1 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:hover:text-zinc-400 rounded bg-zinc-900 border border-zinc-800 transition-all cursor-pointer"
+                            title="上一页"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[9px] font-black text-zinc-400 px-1.5 select-none min-w-[36px] text-center">
+                            {activeSlideIndex === 0 ? "封面" : `${activeSlideIndex} / ${slidesCount - 1}`}
+                          </span>
+                          <button
+                            disabled={activeSlideIndex === slidesCount - 1}
+                            onClick={() => setCurrentSlideIndex(prev => Math.min(slidesCount - 1, prev + 1))}
+                            className="p-1 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:hover:text-zinc-400 rounded bg-zinc-900 border border-zinc-800 transition-all cursor-pointer"
+                            title="下一页"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {activeSlideIndex > 0 && (
+                          <button
+                            onClick={() => setShowSpeakerNotes(prev => !prev)}
+                            className={cn(
+                              "px-2 py-1 rounded text-[8px] font-black border transition-all flex items-center space-x-1 cursor-pointer",
+                              showSpeakerNotes
+                                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            <span>🎙️ 逐字稿</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Fullscreen PPT Portal */}
+                {isPPTExcelMaximized && createPortal(
+                  <div 
+                    className="fixed inset-0 z-[9999] bg-zinc-950/98 backdrop-blur-md flex flex-col p-4 md:p-8 animate-in fade-in duration-200"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {/* Maximize Mode Top Bar */}
+                    <div className="flex items-center justify-between pb-4 border-b border-zinc-800 shrink-0 mb-4">
+                      <div className="flex items-center space-x-3">
+                        <span className="text-2xl">📊</span>
+                        <div>
+                          <h3 className="text-base font-black text-zinc-100">
+                            {parsed.title || "商业演示文稿"}
+                          </h3>
+                          <p className="text-xs text-zinc-400">正在全屏放映与设计大纲预览中</p>
+                        </div>
+                      </div>
+
+                      {/* Controls inside Maximize Mode */}
+                      <div className="flex items-center space-x-4">
+                        {/* Mode Switcher */}
+                        <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800 shrink-0">
+                          <button
+                            onClick={() => setPptViewMode("slides")}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all",
+                              pptViewMode === "slides"
+                                ? "bg-indigo-600 text-white shadow-sm"
+                                : "text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            放映幻灯片
+                          </button>
+                          <button
+                            onClick={() => setPptViewMode("outline")}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all",
+                              pptViewMode === "outline"
+                                ? "bg-indigo-600 text-white shadow-sm"
+                                : "text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            编辑大纲
+                          </button>
+                        </div>
+
+                        {/* Download */}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await generatePPT(localText, `pptx-${item.id}`);
+                            } catch (err) {
+                              console.error("PPT generation failed", err);
+                            }
+                          }}
+                          className="px-3.5 py-1.5 bg-zinc-900 hover:bg-indigo-900/60 hover:text-indigo-300 text-zinc-400 rounded-xl border border-zinc-800 transition-all flex items-center space-x-2 cursor-pointer text-xs font-bold"
+                          title="下载 PPT 文件"
+                        >
+                          <Download className="w-4 h-4 text-indigo-400" />
+                          <span>下载文件</span>
+                        </button>
+
+                        {/* Close button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsPPTExcelMaximized(false);
+                          }}
+                          className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-xl transition-all border border-red-500/20 animate-pulse"
+                          title="退出全屏"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Main content in Maximize Mode */}
+                    <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-hidden min-h-0">
+                      {pptViewMode === "outline" ? (
+                        <div className="flex-1 h-full relative bg-zinc-900 rounded-2xl border border-zinc-800 p-4">
+                          <textarea
+                            value={localText}
+                            onChange={(e) => {
+                              const newText = e.target.value;
+                              setLocalText(newText);
+                              setHistory?.((prev) =>
+                                prev.map((h) =>
+                                  h.id === item.id ? { ...h, revisedPrompt: newText } : h
+                                )
+                              );
+                              syncToCloud?.({ ...item, revisedPrompt: newText });
+                            }}
+                            className="w-full h-full p-4 bg-transparent font-mono text-xs sm:text-sm leading-relaxed text-zinc-200 resize-none outline-none custom-scrollbar"
+                            placeholder="在此处直接输入或编辑 PPT 内容大纲..."
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col h-full bg-zinc-900 rounded-2xl border border-zinc-800 overflow-hidden relative shadow-2xl">
+                          {activeSlideIndex === 0 ? (
+                            // Cover slide maximized view
+                            <div className="flex-1 flex flex-col justify-center p-12 text-left relative overflow-hidden bg-gradient-to-br from-indigo-950 via-slate-950 to-indigo-900">
+                              <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e1b4b_1px,transparent_1px),linear-gradient(to_bottom,#1e1b4b_1px,transparent_1px)] bg-[size:2rem_2rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-35 pointer-events-none" />
+                              <div className="relative z-10 space-y-6 max-w-3xl mx-auto w-full">
+                                <span className="inline-flex items-center px-3.5 py-1 rounded bg-indigo-500/10 border border-indigo-500/20 text-xs font-black text-indigo-400 tracking-wider uppercase">
+                                  意图操作系统 • 商业中心
+                                </span>
+                                <h2 className="text-3xl sm:text-5xl font-black text-white leading-tight tracking-tight drop-shadow-md">
+                                  {parsed.title || "商业演示策划案"}
+                                </h2>
+                                <div className="w-20 h-1.5 bg-amber-500 rounded-full" />
+                                <p className="text-sm sm:text-base text-zinc-400 font-medium">
+                                  演示文稿一键编译 • 由小逻智脑协助创作
+                                </p>
+                              </div>
+                            </div>
+                          ) : (() => {
+                            // Content slide maximized view
+                            const sec = parsed.sections[activeSlideIndex - 1];
+                            if (!sec) {
+                              return (
+                                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                                  <Loader2 className="w-8 h-8 text-zinc-500 animate-spin mb-2" />
+                                  <p className="text-sm text-zinc-400">正在生成设计中...</p>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="flex-1 flex flex-col justify-between p-8 sm:p-12 text-left bg-zinc-900 relative animate-in fade-in zoom-in-95 duration-200">
+                                <div className="shrink-0 mb-4 border-b border-zinc-800 pb-3">
+                                  <h3 className="text-lg sm:text-2xl font-black text-zinc-100 flex items-center space-x-3">
+                                    <span className="text-indigo-400 font-mono">0{activeSlideIndex}</span>
+                                    <span>{sec.title}</span>
+                                  </h3>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+                                  {sec.table && sec.table.headers.length > 0 ? (
+                                    <div className="overflow-x-auto my-3 border border-zinc-800 rounded-xl">
+                                      <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                                        <thead>
+                                          <tr className="bg-zinc-800 border-b border-zinc-800">
+                                            {sec.table.headers.map((h, hIdx) => (
+                                              <th key={hIdx} className="p-3 font-bold text-zinc-200">
+                                                {h}
+                                              </th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {sec.table.rows.map((row, rIdx) => (
+                                            <tr key={rIdx} className="border-b border-zinc-800/40 hover:bg-zinc-800/10">
+                                              {row.map((cell, cIdx) => (
+                                                <td key={cIdx} className="p-3 text-zinc-400">
+                                                  {cell}
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : sec.bullets.length > 0 ? (
+                                    <ul className="space-y-3.5 text-sm sm:text-base max-w-4xl">
+                                      {sec.bullets.map((bullet, bIdx) => (
+                                        <li key={bIdx} className="flex items-start space-x-2.5 text-zinc-300 animate-in fade-in slide-in-from-left duration-200" style={{ animationDelay: `${bIdx * 50}ms` }}>
+                                          <span className="text-indigo-400 mt-1.5 shrink-0 text-sm">✦</span>
+                                          <span className="leading-relaxed">{bullet}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <div className="space-y-3.5 text-sm sm:text-base text-zinc-300 leading-relaxed max-w-4xl">
+                                      {sec.content.map((p, pIdx) => (
+                                        <p key={pIdx}>{p}</p>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Slide maximized footer */}
+                                <div className="shrink-0 flex items-center justify-between text-xs font-bold text-zinc-500 pt-3 border-t border-zinc-800/40">
+                                  <span>小逻 AI 商业脑</span>
+                                  <span>{activeSlideIndex} / {slidesCount - 1}</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Fullscreen Speaker Notes Panel (rendered side-by-side or overlaid elegantly) */}
+                          {showSpeakerNotes && activeSlideIndex > 0 && (() => {
+                            const sec = parsed.sections[activeSlideIndex - 1];
+                            return (
+                              <div className="absolute inset-x-0 bottom-16 max-h-[45%] bg-zinc-950 border-t border-zinc-800 p-4 overflow-y-auto animate-in slide-in-from-bottom duration-150 rounded-t-2xl z-20">
+                                <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 mb-2">
+                                  <span className="text-[10px] font-black tracking-wider text-amber-400 uppercase">🎙️ 宣讲逐字稿 (Speaker Notes)</span>
+                                  <button onClick={() => setShowSpeakerNotes(false)} className="text-[10px] text-zinc-500 hover:text-zinc-300 font-extrabold">隐藏</button>
+                                </div>
+                                <p className="text-xs sm:text-sm leading-relaxed text-zinc-400 font-medium">
+                                  {sec && sec.content.length > 0 ? sec.content.join("\n") : "（幻灯片提纲已备好，宣讲稿正在提炼中...）"}
+                                </p>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Slide maximized controller */}
+                          <div className="bg-zinc-950 border-t border-zinc-800 px-4 py-3 flex items-center justify-between shrink-0">
+                            <div className="flex items-center space-x-2">
+                              <button
+                                disabled={activeSlideIndex === 0}
+                                onClick={() => setCurrentSlideIndex(prev => Math.max(0, prev - 1))}
+                                className="p-2 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:hover:text-zinc-400 rounded-lg bg-zinc-900 border border-zinc-800 transition-all cursor-pointer"
+                                title="上一页"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                              </button>
+                              <span className="text-xs font-black text-zinc-400 px-3 select-none min-w-[50px] text-center">
+                                {activeSlideIndex === 0 ? "封面" : `${activeSlideIndex} / ${slidesCount - 1}`}
+                              </span>
+                              <button
+                                disabled={activeSlideIndex === slidesCount - 1}
+                                onClick={() => setCurrentSlideIndex(prev => Math.min(slidesCount - 1, prev + 1))}
+                                className="p-2 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:hover:text-zinc-400 rounded-lg bg-zinc-900 border border-zinc-800 transition-all cursor-pointer"
+                                title="下一页"
+                              >
+                                <ChevronRight className="w-5 h-5" />
+                              </button>
+                            </div>
+
+                            {activeSlideIndex > 0 && (
+                              <button
+                                onClick={() => setShowSpeakerNotes(prev => !prev)}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-lg text-xs font-black border transition-all flex items-center space-x-2 cursor-pointer",
+                                  showSpeakerNotes
+                                    ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                                )}
+                              >
+                                🎙️ <span>宣讲逐字稿</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+              </div>
+            );
+          }
+
+          // Detect if this is an Excel spreadsheet node
+          const isExcel = item.config?.skillId === "office-excel-report" || 
+                          (item.revisedPrompt && (
+                            item.revisedPrompt.includes("【工作表") || 
+                            item.revisedPrompt.includes("|---") || 
+                            item.revisedPrompt.includes("| Column") ||
+                            /\|\s*:?-+:?\s*\|/.test(item.revisedPrompt)
+                          ));
+
+          if (isExcel) {
+            const parsed = parseDocumentContent(localText);
+            const sheetsWithTables = parsed.sections.filter(sec => sec.table);
+            const activeSheetIndex = Math.min(Math.max(0, excelActiveSheet), Math.max(0, sheetsWithTables.length - 1));
+            const activeSheet = sheetsWithTables[activeSheetIndex];
+
+            // Filter rows based on search
+            const filteredRows = activeSheet && activeSheet.table
+              ? activeSheet.table.rows.filter(row =>
+                  excelSearch === "" ||
+                  row.some(cell => cell.toLowerCase().includes(excelSearch.toLowerCase()))
+                )
+              : [];
+
+            return (
+              <div className="relative aspect-[3/4] sm:aspect-square overflow-hidden bg-zinc-950 cursor-pointer group/script rounded-2xl flex flex-col border border-zinc-800 shadow-xl">
+                {/* Excel Top Bar */}
+                <div className="px-4 py-3 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between shrink-0">
+                  <div className="flex items-center space-x-1.5 overflow-hidden">
+                    <span className="text-sm shrink-0">📈</span>
+                    <span className="text-[11px] font-black text-zinc-100 truncate max-w-[120px] sm:max-w-[150px]">
+                      {parsed.title || "商业数据报表"}
+                    </span>
+                  </div>
+
+                  {/* Mode switcher tabs */}
+                  <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800/80 shrink-0">
+                    <button
+                      onClick={() => setExcelViewMode("sheets")}
+                      className={cn(
+                        "px-2 py-1 rounded text-[9px] font-extrabold transition-all",
+                        excelViewMode === "sheets"
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      )}
+                    >
+                      表格
+                    </button>
+                    <button
+                      onClick={() => setExcelViewMode("outline")}
+                      className={cn(
+                        "px-2 py-1 rounded text-[9px] font-extrabold transition-all",
+                        excelViewMode === "outline"
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      )}
+                    >
+                      大纲
+                    </button>
+                  </div>
+
+                  {/* Export Trigger */}
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await generateExcel(localText, `excel-${item.id}`);
+                        } catch (err) {
+                          console.error("Excel generation failed", err);
+                        }
+                      }}
+                      className="p-1.5 bg-zinc-950 hover:bg-emerald-900/60 hover:text-emerald-300 text-zinc-400 rounded-lg border border-zinc-800 transition-all flex items-center space-x-1 cursor-pointer"
+                      title="下载 Excel 文件"
+                    >
+                      <Download className="w-3 h-3 text-emerald-400" />
+                      <span className="hidden sm:inline text-[9px] font-bold">下载</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsPPTExcelMaximized(true);
+                      }}
+                      className="p-1.5 bg-zinc-950 hover:bg-emerald-900/60 hover:text-emerald-300 text-zinc-400 rounded-lg border border-zinc-800 transition-all flex items-center space-x-1 cursor-pointer"
+                      title="全屏放大"
+                    >
+                      <Maximize2 className="w-3 h-3 text-emerald-400" />
+                      <span className="hidden sm:inline text-[9px] font-bold">放大</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Excel Content Card Area */}
+                <div className="flex-1 overflow-hidden relative flex flex-col bg-zinc-950 p-3">
+                  {excelViewMode === "outline" ? (
+                    // Outline / Text Editor Mode
+                    <div className="w-full h-full relative" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                      <textarea
+                        value={localText}
+                        onChange={(e) => {
+                          const newText = e.target.value;
+                          setLocalText(newText);
+                          setHistory?.((prev) =>
+                            prev.map((h) =>
+                              h.id === item.id ? { ...h, revisedPrompt: newText } : h
+                            )
+                          );
+                          syncToCloud?.({ ...item, revisedPrompt: newText });
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="w-full h-full p-3 bg-zinc-900 rounded-xl border border-zinc-800 focus:border-emerald-500 font-mono text-[10px] sm:text-[11px] leading-relaxed text-zinc-300 resize-none outline-none transition-all no-drag custom-scrollbar"
+                        placeholder="在此处直接输入或编辑 Excel 内容大纲或 markdown 表格..."
+                      />
+                    </div>
+                  ) : (
+                    // Interactive Grid View Mode
+                    <div className="flex-1 flex flex-col relative overflow-hidden bg-zinc-900 rounded-xl border border-zinc-800/60 shadow-inner">
+                      {/* Grid Headers & Search */}
+                      <div className="bg-zinc-950 border-b border-zinc-800 px-3 py-1.5 flex items-center justify-between shrink-0">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="搜索表格..."
+                            value={excelSearch}
+                            onChange={(e) => setExcelSearch(e.target.value)}
+                            className="w-28 sm:w-36 pl-6 pr-2 py-0.5 bg-zinc-900 rounded border border-zinc-800 focus:border-emerald-500 text-[9px] text-zinc-300 placeholder-zinc-600 outline-none transition-all"
+                          />
+                          <Search className="w-2.5 h-2.5 text-zinc-600 absolute left-2 top-2" />
+                        </div>
+                        <span className="text-[8px] font-mono text-zinc-500">
+                          {activeSheet ? activeSheet.title : "无表格数据"}
+                        </span>
+                      </div>
+
+                      {/* Actual Cells Area */}
+                      <div className="flex-1 overflow-auto custom-scrollbar no-drag" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+                        {activeSheet && activeSheet.table ? (
+                          <table className="w-full text-[9px] sm:text-[10px] text-left border-collapse min-w-[300px]">
+                            <thead className="sticky top-0 bg-zinc-950 z-10">
+                              <tr className="border-b border-zinc-800">
+                                <th className="w-8 p-1 text-center font-bold text-zinc-600 border-r border-zinc-800 bg-zinc-900 select-none">/</th>
+                                {activeSheet.table.headers.map((h, hIdx) => (
+                                  <th key={hIdx} className="p-1 font-black text-zinc-400 border-r border-zinc-800 text-center bg-zinc-900">
+                                    {String.fromCharCode(65 + (hIdx % 26))}
+                                  </th>
+                                ))}
+                              </tr>
+                              <tr className="border-b border-zinc-800/60 bg-zinc-900/40">
+                                <th className="p-1 bg-zinc-950"></th>
+                                {activeSheet.table.headers.map((h, hIdx) => (
+                                  <th key={hIdx} className="p-1 font-bold text-zinc-300 truncate max-w-[100px] border-r border-zinc-800">
+                                    {h}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredRows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={activeSheet.table.headers.length + 1} className="py-12 text-center text-zinc-600 text-xs">
+                                    无匹配数据行
+                                  </td>
+                                </tr>
+                              ) : (
+                                filteredRows.map((row, rIdx) => (
+                                  <tr key={rIdx} className="border-b border-zinc-800/40 hover:bg-zinc-800/10">
+                                    <td className="p-1 text-center font-mono text-zinc-600 bg-zinc-950 border-r border-zinc-800 sticky left-0 z-0 select-none">{rIdx + 1}</td>
+                                    {row.map((cell, cIdx) => (
+                                      <td key={cIdx} className="p-1.5 text-zinc-300 border-r border-zinc-800/30 truncate max-w-[120px]" title={cell}>
+                                        {cell}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+                            <TableProperties className="w-8 h-8 text-zinc-700 mb-1.5" />
+                            <p className="text-[10px] text-zinc-500">
+                              未发现符合要求的结构化表格数据，您可以切换到【大纲】模式，直接输入 Markdown 表格内容。
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Sheet tabs at the bottom of the card */}
+                      {sheetsWithTables.length > 0 && (
+                        <div className="bg-zinc-950/90 border-t border-zinc-800 px-3 py-1.5 flex items-center justify-between shrink-0">
+                          <div className="flex items-center space-x-1 overflow-x-auto custom-scrollbar max-w-[80%]">
+                            {sheetsWithTables.map((sheet, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => setExcelActiveSheet(idx)}
+                                className={cn(
+                                  "px-2 py-0.5 rounded text-[8px] font-black border transition-all flex items-center space-x-1 cursor-pointer",
+                                  excelActiveSheet === idx
+                                    ? "bg-emerald-600/25 border-emerald-500/40 text-emerald-400"
+                                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                                )}
+                              >
+                                <span>{sheet.title}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <span className="text-[8px] font-mono text-zinc-600">
+                            共 {sheetsWithTables.length} 张工作表
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Fullscreen Excel Portal */}
+                {isPPTExcelMaximized && createPortal(
+                  <div 
+                    className="fixed inset-0 z-[9999] bg-zinc-950/98 backdrop-blur-md flex flex-col p-4 md:p-8 animate-in fade-in duration-200"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {/* Maximize Mode Top Bar */}
+                    <div className="flex items-center justify-between pb-4 border-b border-zinc-800 shrink-0 mb-4 bg-transparent">
+                      <div className="flex items-center space-x-3">
+                        <span className="text-2xl">📈</span>
+                        <div>
+                          <h3 className="text-base font-black text-zinc-100">
+                            {parsed.title || "商业数据报表"}
+                          </h3>
+                          <p className="text-xs text-zinc-400">正在全屏查看与多维数据报表编辑中</p>
+                        </div>
+                      </div>
+
+                      {/* Controls inside Maximize Mode */}
+                      <div className="flex items-center space-x-4">
+                        {/* Interactive Grid Search */}
+                        {excelViewMode === "sheets" && (
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder="搜索工作表数据..."
+                              value={excelSearch}
+                              onChange={(e) => setExcelSearch(e.target.value)}
+                              className="w-48 sm:w-64 pl-8 pr-3 py-1.5 bg-zinc-900 rounded-xl border border-zinc-800 focus:border-emerald-500 text-xs text-zinc-300 placeholder-zinc-500 outline-none transition-all"
+                            />
+                            <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2.5" />
+                          </div>
+                        )}
+
+                        {/* Mode Switcher */}
+                        <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800 shrink-0">
+                          <button
+                            onClick={() => setExcelViewMode("sheets")}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all",
+                              excelViewMode === "sheets"
+                                ? "bg-emerald-600 text-white shadow-sm"
+                                : "text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            表格视图
+                          </button>
+                          <button
+                            onClick={() => setExcelViewMode("outline")}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all",
+                              excelViewMode === "outline"
+                                ? "bg-emerald-600 text-white shadow-sm"
+                                : "text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            编辑大纲
+                          </button>
+                        </div>
+
+                        {/* Download */}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await generateExcel(localText, `excel-${item.id}`);
+                            } catch (err) {
+                              console.error("Excel generation failed", err);
+                            }
+                          }}
+                          className="px-3.5 py-1.5 bg-zinc-900 hover:bg-emerald-900/60 hover:text-emerald-300 text-zinc-400 rounded-xl border border-zinc-800 transition-all flex items-center space-x-2 cursor-pointer text-xs font-bold"
+                          title="下载 Excel 文件"
+                        >
+                          <Download className="w-4 h-4 text-emerald-400" />
+                          <span>下载报表</span>
+                        </button>
+
+                        {/* Close button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsPPTExcelMaximized(false);
+                          }}
+                          className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-xl transition-all border border-red-500/20 animate-pulse"
+                          title="退出全屏"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Main content in Maximize Mode */}
+                    <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-zinc-900 rounded-2xl border border-zinc-800">
+                      {excelViewMode === "outline" ? (
+                        <div className="flex-1 h-full relative p-4">
+                          <textarea
+                            value={localText}
+                            onChange={(e) => {
+                              const newText = e.target.value;
+                              setLocalText(newText);
+                              setHistory?.((prev) =>
+                                prev.map((h) =>
+                                  h.id === item.id ? { ...h, revisedPrompt: newText } : h
+                                )
+                              );
+                              syncToCloud?.({ ...item, revisedPrompt: newText });
+                            }}
+                            className="w-full h-full p-4 bg-transparent font-mono text-xs sm:text-sm leading-relaxed text-zinc-200 resize-none outline-none custom-scrollbar"
+                            placeholder="在此处直接输入或编辑 Excel 内容大纲或 markdown 表格..."
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col relative overflow-hidden h-full">
+                          {/* Active sheet indicator in fullscreen */}
+                          <div className="bg-zinc-950/50 border-b border-zinc-800 px-6 py-2.5 flex items-center justify-between shrink-0">
+                            <div className="flex items-center space-x-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span className="text-xs font-mono font-bold text-zinc-300">
+                                当前工作表：{activeSheet ? activeSheet.title : "无数据"}
+                              </span>
+                            </div>
+                            {excelSearch && (
+                              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-black">
+                                筛选中：找到 {filteredRows.length} 行数据
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Large Grid View */}
+                          <div className="flex-1 overflow-auto custom-scrollbar p-4">
+                            {activeSheet && activeSheet.table ? (
+                              <table className="w-full text-xs sm:text-sm text-left border-collapse border border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
+                                <thead className="sticky top-0 bg-zinc-950 z-10 shadow-md">
+                                  <tr className="border-b border-zinc-800">
+                                    <th className="w-12 p-2.5 text-center font-bold text-zinc-500 border-r border-zinc-800 bg-zinc-900 select-none">/</th>
+                                    {activeSheet.table.headers.map((h, hIdx) => (
+                                      <th key={hIdx} className="p-2.5 font-black text-zinc-400 border-r border-zinc-800 text-center bg-zinc-900">
+                                        {String.fromCharCode(65 + (hIdx % 26))}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                  <tr className="border-b border-zinc-800 bg-zinc-900/60">
+                                    <th className="p-2.5 bg-zinc-950"></th>
+                                    {activeSheet.table.headers.map((h, hIdx) => (
+                                      <th key={hIdx} className="p-3 font-bold text-zinc-200 border-r border-zinc-800">
+                                        {h}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {filteredRows.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={activeSheet.table.headers.length + 1} className="py-24 text-center text-zinc-500 text-sm">
+                                        无匹配工作表数据行
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    filteredRows.map((row, rIdx) => (
+                                      <tr key={rIdx} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 transition-colors">
+                                        <td className="p-2.5 text-center font-mono text-zinc-500 bg-zinc-950 border-r border-zinc-800 sticky left-0 z-0 select-none">{rIdx + 1}</td>
+                                        {row.map((cell, cIdx) => (
+                                          <td key={cIdx} className="p-3 text-zinc-300 border-r border-zinc-800/30 truncate max-w-[200px]" title={cell}>
+                                            {cell}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                                <TableProperties className="w-12 h-12 text-zinc-700 mb-3" />
+                                <p className="text-sm text-zinc-400 max-w-md">
+                                  未发现符合要求的结构化表格数据，您可以切换到【大纲】模式，直接输入 Markdown 表格内容。
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Interactive sheet selector tabs */}
+                          {sheetsWithTables.length > 0 && (
+                            <div className="bg-zinc-950/90 border-t border-zinc-800 px-6 py-3 flex items-center justify-between shrink-0">
+                              <div className="flex items-center space-x-2 overflow-x-auto custom-scrollbar max-w-[80%] pb-1">
+                                {sheetsWithTables.map((sheet, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => setExcelActiveSheet(idx)}
+                                    className={cn(
+                                      "px-3.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center space-x-2 cursor-pointer",
+                                      excelActiveSheet === idx
+                                        ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-950/20"
+                                        : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                                    )}
+                                  >
+                                    <span>{sheet.title}</span>
+                                  </button>
+                                ))}
+                              </div>
+                              <span className="text-xs font-mono text-zinc-500">
+                                共 {sheetsWithTables.length} 张工作表
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>,
                   document.body
@@ -2177,7 +3350,7 @@ export const HistoryCard = React.memo(
           </div>
         )}
 
-        {item.type === "gen_script" && !isDissectedScriptResult && !item.config?.isSkillNode && !item.config?.isIntegratedModelNode && (
+        {item.type === "gen_script" && !isExcel && !isPPT && !isDissectedScriptResult && !item.config?.isSkillNode && !item.config?.isIntegratedModelNode && (
           <div className="p-6 space-y-4 bg-white rounded-b-2xl">
             <div className="min-h-[56px]">
               <p className="text-[10px] text-amber-500 font-black uppercase tracking-[0.2em] mb-2">
@@ -2200,17 +3373,17 @@ export const HistoryCard = React.memo(
           <AnimatePresence>
             {isSelected && (
               <div
-                className="absolute top-full mt-4 z-[100] pointer-events-none"
+                className="absolute bottom-full mb-4 z-[100] pointer-events-none"
                 style={{
                   left: "50%",
                   transform: `translate(-50%, 0) scale(${1 / canvasScale})`,
-                  transformOrigin: "top center",
+                  transformOrigin: "bottom center",
                 }}
               >
                 <motion.div
-                  initial={{ opacity: 0, y: -15 }}
+                  initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -15 }}
+                  exit={{ opacity: 0, y: 15 }}
                   className="flex items-center bg-zinc-950/90 border border-zinc-800/80 hover:border-zinc-700/80 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.6),0_0_12px_rgba(99,102,241,0.06)] backdrop-blur-xl rounded-full px-3 py-1.5 gap-1 text-white whitespace-nowrap pointer-events-auto action-bar-click-target"
                   onClick={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
@@ -2289,140 +3462,112 @@ export const HistoryCard = React.memo(
                             </>
                           );
                         } else {
-                          return (
-                            <div className="relative">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowDecomposeDropdown(!showDecomposeDropdown);
-                                }}
-                                className={cn(
-                                  "h-8 px-2.5 hover:bg-amber-400/10 text-amber-400 hover:text-amber-300 rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold",
-                                  showDecomposeDropdown && "bg-amber-400/20 text-amber-300"
-                                )}
-                                title="智能拆解脚本/剧本内容"
-                              >
-                                <Clapperboard className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                                <span>剧本拆解</span>
-                                <ChevronDown
-                                  className={cn(
-                                    "w-3 h-3 text-amber-400/80 transition-transform duration-200",
-                                    showDecomposeDropdown && "rotate-180"
-                                  )}
-                                />
-                              </button>
-
-                              <AnimatePresence>
-                                {showDecomposeDropdown && (
-                                  <motion.div
-                                    initial={{ opacity: 0, scale: 0.95, y: 8 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.95, y: 8 }}
-                                    transition={{ duration: 0.15 }}
-                                    className="absolute bottom-full mb-2 left-0 z-[120] min-w-[155px] bg-zinc-950/95 border border-zinc-800/80 shadow-2xl backdrop-blur-md rounded-xl p-1 flex flex-col gap-0.5 whitespace-nowrap action-bar-click-target"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowDecomposeDropdown(false);
-                                        onMakeVideo?.(item);
-                                      }}
-                                      className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-zinc-300 hover:text-amber-400 hover:bg-zinc-800/80 rounded-lg transition-colors flex items-center space-x-2"
-                                    >
-                                      <Clapperboard className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                                      <span>极速剧本拆解</span>
-                                    </button>
-
-                                    <button
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        setShowDecomposeDropdown(false);
-                                        await onDirectDecomposeScript?.(item, "shot_prompt");
-                                      }}
-                                      disabled={isGenerating}
-                                      className={cn(
-                                        "w-full text-left px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center space-x-2",
-                                        isGenerating
-                                          ? "text-zinc-500 cursor-not-allowed opacity-50"
-                                          : "text-zinc-300 hover:text-fuchsia-400 hover:bg-zinc-800/80"
-                                      )}
-                                    >
-                                      <Film className="w-3.5 h-3.5 text-fuchsia-400" />
-                                      <span>分镜提示词</span>
-                                    </button>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          );
+                          return null;
                         }
                       })()}
 
-                      <div className="relative">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowExportDropdown(!showExportDropdown);
-                          }}
-                          className={cn(
-                            "h-8 px-2.5 hover:bg-zinc-800/80 text-zinc-300 hover:text-white rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold",
-                            showExportDropdown && "bg-zinc-850 text-white"
-                          )}
-                          title="复制或下载剧本"
-                        >
-                          <Copy className="w-3.5 h-3.5 text-zinc-400" />
-                          <span>复制与下载</span>
-                          <ChevronDown
+                      {!(isPPT || isExcel) && (
+                        <div className="relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowExportDropdown(!showExportDropdown);
+                            }}
                             className={cn(
-                              "w-3 h-3 text-zinc-400 transition-transform duration-200",
-                              showExportDropdown && "rotate-180"
+                              "h-8 px-2.5 hover:bg-zinc-800/80 text-zinc-300 hover:text-white rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold",
+                              showExportDropdown && "bg-zinc-850 text-white"
                             )}
-                          />
-                        </button>
+                            title="复制或下载剧本"
+                          >
+                            <Copy className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>复制与下载</span>
+                            <ChevronDown
+                              className={cn(
+                                "w-3 h-3 text-zinc-400 transition-transform duration-200",
+                                showExportDropdown && "rotate-180"
+                              )}
+                            />
+                          </button>
 
-                        <AnimatePresence>
-                          {showExportDropdown && (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.95, y: 8 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.95, y: 8 }}
-                              transition={{ duration: 0.15 }}
-                              className="absolute bottom-full mb-2 left-0 z-[120] min-w-[140px] bg-zinc-950/95 border border-zinc-800/80 shadow-2xl backdrop-blur-md rounded-xl p-1 flex flex-col gap-0.5 whitespace-nowrap action-bar-click-target"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowExportDropdown(false);
-                                  navigator.clipboard.writeText(item.revisedPrompt || "");
-                                }}
-                                className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-lg transition-colors flex items-center space-x-2"
+                          <AnimatePresence>
+                            {showExportDropdown && (
+                              <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: -8 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: -8 }}
+                                transition={{ duration: 0.15 }}
+                                className="absolute top-full mt-2 left-0 z-[120] min-w-[200px] bg-zinc-950/95 border border-zinc-800/80 shadow-2xl backdrop-blur-md rounded-xl p-1 flex flex-col gap-0.5 whitespace-nowrap action-bar-click-target"
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                <Copy className="w-3.5 h-3.5 text-zinc-400" />
-                                <span>
-                                  {cls === "text_asset"
-                                    ? "复制资产内容"
-                                    : cls === "shot_prompt"
-                                    ? "复制分镜内容"
-                                    : "复制剧本"}
-                                </span>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowExportDropdown(false);
-                                  onDownload(item);
-                                }}
-                                className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-lg transition-colors flex items-center space-x-2"
-                              >
-                                <Download className="w-3.5 h-3.5 text-zinc-400" />
-                                <span>下载 TXT</span>
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowExportDropdown(false);
+                                    navigator.clipboard.writeText(item.revisedPrompt || "");
+                                  }}
+                                  className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-lg transition-colors flex items-center space-x-2"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-zinc-400" />
+                                  <span>
+                                    {cls === "text_asset"
+                                      ? "复制资产内容"
+                                      : cls === "shot_prompt"
+                                      ? "复制分镜内容"
+                                      : "复制剧本内容"}
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowExportDropdown(false);
+                                    onDownload(item);
+                                  }}
+                                  className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-lg transition-colors flex items-center space-x-2"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-zinc-400" />
+                                  <span>下载标准 TXT 文档</span>
+                                </button>
+                                
+                                <div className="h-[1px] bg-zinc-800/60 my-1" />
+                                
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowExportDropdown(false);
+                                    generatePPT(item.revisedPrompt || "", `pptx-${item.id}`);
+                                  }}
+                                  className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-[#c084fc] hover:text-white hover:bg-purple-900/40 rounded-lg transition-colors flex items-center space-x-2"
+                                >
+                                  <Layout className="w-3.5 h-3.5 text-[#c084fc]" />
+                                  <span>📊 转换为商业幻灯片 (PPT)</span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowExportDropdown(false);
+                                    generatePDF(item.revisedPrompt || "", `pdf-${item.id}`);
+                                  }}
+                                  className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-[#818cf8] hover:text-white hover:bg-indigo-900/40 rounded-lg transition-colors flex items-center space-x-2"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-[#818cf8]" />
+                                  <span>📄 转换为商业白皮书 (PDF)</span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowExportDropdown(false);
+                                    generateExcel(item.revisedPrompt || "", `excel-${item.id}`);
+                                  }}
+                                  className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-[#34d399] hover:text-white hover:bg-emerald-900/40 rounded-lg transition-colors flex items-center space-x-2"
+                                >
+                                  <ClipboardList className="w-3.5 h-3.5 text-[#34d399]" />
+                                  <span>📈 转换为数据报表 (Excel)</span>
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )}
 
                       <button
                         onClick={(e) => {
@@ -2448,19 +3593,7 @@ export const HistoryCard = React.memo(
                         <span>查看与修改</span>
                       </button>
 
-                      <div className="w-[1px] h-3.5 bg-zinc-800 mx-1 shrink-0" />
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemove(item.id);
-                        }}
-                        className="h-8 px-2.5 hover:bg-red-500/10 hover:text-red-300 text-red-400/90 rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold"
-                        title="删除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>删除</span>
-                      </button>
                     </>
                   ) : (
                     <>
@@ -2468,152 +3601,7 @@ export const HistoryCard = React.memo(
                         item.imageUrl ||
                         item.videoUrl) && (
                         <>
-                          {!item.videoUrl && (
-                            <>
-                              <div className="relative">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowCreativeDropdown(
-                                      !showCreativeDropdown,
-                                    );
-                                  }}
-                                  className={cn(
-                                    "h-8 px-2.5 hover:bg-indigo-500/10 text-indigo-300 hover:text-indigo-200 rounded-full flex items-center space-x-1 transition-all active:scale-95 text-xs font-semibold",
-                                    showCreativeDropdown &&
-                                      "bg-indigo-500/15 text-indigo-200",
-                                  )}
-                                  title="更多创意延展工具"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-                                  <span>创意延展</span>
-                                  <ChevronDown
-                                    className={cn(
-                                      "w-3 h-3 text-zinc-400 transition-transform duration-200",
-                                      showCreativeDropdown && "rotate-180",
-                                    )}
-                                  />
-                                </button>
 
-                                <AnimatePresence>
-                                  {showCreativeDropdown && (
-                                    <motion.div
-                                      initial={{
-                                        opacity: 0,
-                                        scale: 0.95,
-                                        y: 8,
-                                      }}
-                                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                                      exit={{ opacity: 0, scale: 0.95, y: 8 }}
-                                      transition={{ duration: 0.15 }}
-                                      className="absolute bottom-full mb-2 left-0 z-[120] w-36 bg-zinc-950/95 border border-zinc-800/80 shadow-2xl backdrop-blur-md rounded-xl p-1 flex flex-col gap-0.5 whitespace-nowrap action-bar-click-target"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onApplyMode?.("six-view", item);
-                                          setShowCreativeDropdown(false);
-                                        }}
-                                        className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                        title="生成该角色的专业转面设定图"
-                                      >
-                                        <Box className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                                        <span>角色设定图</span>
-                                      </button>
-
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onApplyMode?.("scene-plan", item);
-                                          setShowCreativeDropdown(false);
-                                        }}
-                                        className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                        title="生成该场景的专业布局方案图"
-                                      >
-                                        <Palette className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                                        <span>场景方案</span>
-                                      </button>
-
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onApplyMode?.(
-                                              "grid-storyboard",
-                                              item,
-                                            );
-                                            setShowCreativeDropdown(false);
-                                          }}
-                                          className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                          title="生成 3X3 九宫格分镜"
-                                        >
-                                          <LayoutDashboard className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                                          <span>九宫格分镜</span>
-                                        </button>
-
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onApplyMode?.("panorama", item);
-                                          setShowCreativeDropdown(false);
-                                        }}
-                                        className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                        title="生成专业级 720° 全景 VR"
-                                      >
-                                        <Compass className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                                        <span>VR全景世界</span>
-                                      </button>
-
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onApplyMode?.(
-                                            "perspective-sim",
-                                            item,
-                                          );
-                                          setShowCreativeDropdown(false);
-                                        }}
-                                        className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                        title="精准控制3D场景与角色位置"
-                                      >
-                                        <Box className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                                        <span>3D导演台</span>
-                                      </button>
-
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onApplyMode?.(
-                                            "point-and-shoot",
-                                            item,
-                                          );
-                                          setShowCreativeDropdown(false);
-                                        }}
-                                        className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                        title="在场景中标记人物位置"
-                                      >
-                                        <Target className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                                        <span>指哪打哪</span>
-                                      </button>
-
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onApplyMode?.("storyboard", item);
-                                          setShowCreativeDropdown(false);
-                                        }}
-                                        className="w-full h-8 px-2.5 rounded-lg flex items-center space-x-2 text-zinc-300 hover:text-white hover:bg-zinc-800/70 transition-all text-xs font-semibold text-left"
-                                        title="自动分析剧情并生成故事分镜大面板"
-                                      >
-                                        <ClipboardList className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-                                        <span>故事面板</span>
-                                      </button>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-                            </>
-                          )}
 
 
 
@@ -2655,31 +3643,7 @@ export const HistoryCard = React.memo(
                         </>
                       )}
 
-                      {(item.status === "success" ||
-                        item.imageUrl ||
-                        item.videoUrl) && (
-                        <div className="w-[1px] h-3.5 bg-zinc-800 mx-1 shrink-0" />
-                      )}
 
-                      {!(
-                        item.status === "success" ||
-                        item.imageUrl ||
-                        item.videoUrl
-                      ) && (
-                        <div className="w-[1px] h-3.5 bg-zinc-800 mx-1 shrink-0" />
-                      )}
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemove(item.id);
-                        }}
-                        className="h-8 px-2.5 hover:bg-red-500/10 hover:text-red-300 text-red-400/90 rounded-full flex items-center space-x-1.5 transition-all active:scale-95 text-xs font-semibold"
-                        title="删除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>删除</span>
-                      </button>
                     </>
                   )}
                 </motion.div>

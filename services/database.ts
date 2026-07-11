@@ -725,6 +725,8 @@ export const initDb = async () => {
       \`tier\` VARCHAR(50) DEFAULT 'light',
       \`custom_options\` TEXT,
       \`category\` VARCHAR(50) DEFAULT 'text',
+      \`enable_upload\` BOOLEAN DEFAULT FALSE,
+      \`upload_type\` VARCHAR(50) DEFAULT 'all',
       \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(\`creator_id\`) REFERENCES users(\`id\`) ON DELETE SET NULL
     )`);
@@ -749,6 +751,18 @@ export const initDb = async () => {
 
     try {
       await connection.query("ALTER TABLE ai_skills ADD COLUMN category VARCHAR(50) DEFAULT 'text'");
+    } catch (e) {
+      // Column might already exist
+    }
+
+    try {
+      await connection.query("ALTER TABLE ai_skills ADD COLUMN enable_upload BOOLEAN DEFAULT FALSE");
+    } catch (e) {
+      // Column might already exist
+    }
+
+    try {
+      await connection.query("ALTER TABLE ai_skills ADD COLUMN upload_type VARCHAR(50) DEFAULT 'all'");
     } catch (e) {
       // Column might already exist
     }

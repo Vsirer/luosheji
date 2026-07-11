@@ -18,5 +18,7 @@ export interface AiSkill {
   tier?: 'light' | 'heavy';
   customOptions?: CustomSkillOption[] | null;
   category?: 'text' | 'image' | 'video' | 'all';
+  enableUpload?: boolean;
+  uploadType?: 'all' | 'text' | 'image' | 'video';
   status?: 'pending' | 'approved' | 'rejected';
 }

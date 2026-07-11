@@ -1,8 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
-import { Config, ApiConfigKey } from "../types";
-import { logUsage } from "./utils";
-import { safeJson } from "../lib/fetch";
-import { toBase64 } from "../lib/utils";
+import { Config, ApiConfigKey } from "../../types";
+import { logUsage } from "../../services/utils";
+import { safeJson } from "../../lib/fetch";
+import { toBase64 } from "../../lib/utils";
 
 export class BaseAgent {
   protected extractJson(text: string, defaultValue: any = null): any {
@@ -49,6 +49,12 @@ export class BaseAgent {
     try {
       return JSON.parse(cleaned);
     } catch (e) {
+      // Try anchor-based fallback extraction for common IntentEngine JSON formats
+      const fallbackParsed = this.tryParseAnchorBasedJson(cleaned);
+      if (fallbackParsed) {
+        return fallbackParsed;
+      }
+
       // 3. Last resort: If it's a list of segments in text format, return a special marker
       if (cleaned.includes('[新起 镜头]') || cleaned.includes('[承接 尾帧')) {
         return { _isTextFormat: true, rawText: cleaned };
@@ -58,6 +64,89 @@ export class BaseAgent {
       if (defaultValue) return defaultValue;
       throw e;
     }
+  }
+
+  private tryParseAnchorBasedJson(text: string): any | null {
+    try {
+      const keys = ["isPipeline", "rationale", "response", "steps"];
+      const keyPositions: { key: string; index: number; length: number }[] = [];
+
+      keys.forEach((key) => {
+        const regex = new RegExp(`"${key}"\\s*:`);
+        const match = text.match(regex);
+        if (match) {
+          keyPositions.push({
+            key,
+            index: match.index!,
+            length: match[0].length,
+          });
+        }
+      });
+
+      if (keyPositions.length === 0) return null;
+
+      // Sort keys by their starting index to find the order
+      keyPositions.sort((a, b) => a.index - b.index);
+
+      const result: any = {};
+
+      for (let i = 0; i < keyPositions.length; i++) {
+        const current = keyPositions[i];
+        const valStart = current.index + current.length;
+        
+        let valEnd = text.length;
+        if (i < keyPositions.length - 1) {
+          valEnd = keyPositions[i + 1].index;
+        } else {
+          const lastCurly = text.lastIndexOf("}");
+          if (lastCurly !== -1) {
+            valEnd = lastCurly;
+          }
+        }
+
+        let rawVal = text.substring(valStart, valEnd).trim();
+
+        if (current.key === "isPipeline") {
+          const cleanVal = rawVal.replace(/[,} \n\r]/g, "").trim();
+          result.isPipeline = cleanVal.toLowerCase().includes("true");
+        } else if (current.key === "rationale" || current.key === "response") {
+          if (rawVal.startsWith('"')) {
+            rawVal = rawVal.substring(1);
+          }
+          if (rawVal.endsWith(',')) {
+            rawVal = rawVal.substring(0, rawVal.length - 1).trim();
+          }
+          if (rawVal.endsWith('"')) {
+            rawVal = rawVal.substring(0, rawVal.length - 1);
+          }
+          result[current.key] = rawVal
+            .replace(/\\n/g, "\n")
+            .replace(/\\r/g, "\r")
+            .replace(/\\t/g, "\t")
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, "\\");
+        } else if (current.key === "steps") {
+          if (rawVal.startsWith("[")) {
+            try {
+              let cleanArray = rawVal;
+              if (cleanArray.endsWith(",")) {
+                cleanArray = cleanArray.substring(0, cleanArray.length - 1).trim();
+              }
+              result.steps = JSON.parse(cleanArray);
+            } catch (e) {
+              result.steps = [];
+            }
+          }
+        }
+      }
+
+      if (result.hasOwnProperty("isPipeline") || result.hasOwnProperty("response")) {
+        return result;
+      }
+    } catch (e) {
+      console.error("tryParseAnchorBasedJson fallback failed:", e);
+    }
+    return null;
   }
 
   protected repairTruncatedJson(json: string): string {

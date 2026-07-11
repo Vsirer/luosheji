@@ -29,12 +29,12 @@ import rateLimit from "express-rate-limit";
 import { Agent, setGlobalDispatcher } from 'undici';
 import { Config } from "./types.ts";
 import { GoogleGenAI, Type } from "@google/genai";
-import { volcFetch } from "./lib/volcengine";
-import { imageAgent } from "./services/imageAgent";
-import { videoAgent } from "./services/videoAgent";
-import db, { initDb, getLastError, testDatabaseConnection, repairDatabaseSchema } from "./services/database";
-import { testOSSConnection, updateOSSConfig, getOSSClient, uploadToOSS } from "./services/oss";
-import { persistFromBase64, persistFromUrl } from "./services/storage";
+import { volcFetch } from "./lib/volcengine.ts";
+import { imageAgent } from "./components/agents/imageAgent.ts";
+import { videoAgent } from "./components/agents/videoAgent.ts";
+import db, { initDb, getLastError, testDatabaseConnection, repairDatabaseSchema } from "./services/database.ts";
+import { testOSSConnection, updateOSSConfig, getOSSClient, uploadToOSS } from "./services/oss.ts";
+import { persistFromBase64, persistFromUrl } from "./services/storage.ts";
 import { execSync } from "child_process";
 import crypto from "crypto";
 
@@ -42,7 +42,7 @@ const __filename_path = typeof __filename !== 'undefined' ? __filename : path.jo
 const __dirname_path = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 import sharp from "sharp";
-import { SYSTEM_SKILLS } from "./skills/definitions";
+import { SYSTEM_SKILLS } from "./skills/definitions/index.ts";
 
 // Global dispatcher configuration remains same
 const globalAgent = new Agent({
@@ -193,7 +193,7 @@ async function startServer() {
 
       // Clean up any obsolete/misplaced plugins from the ai_skills table so they don't appear as SKILLs
       try {
-        await db.query("DELETE FROM ai_skills WHERE id IN ('perspective-sim', 'point-and-shoot', 'camera-control')");
+        await db.query("DELETE FROM ai_skills WHERE id IN ('perspective-sim', 'point-and-shoot', 'camera-control', 'panorama')");
         console.log('>>> [DEBUG] Cleaned up obsolete plugins from ai_skills table.');
       } catch (err) {
         console.error("Failed to clean up obsolete plugins from ai_skills:", err);
@@ -222,15 +222,15 @@ async function startServer() {
           const customOptionsStr = s.customOptions ? JSON.stringify(s.customOptions) : null;
           if (exists.length === 0) {
             await db.query(
-              'INSERT INTO ai_skills (id, name, `desc`, icon, instruction, creator_id, creator_name, is_public, is_system, tier, custom_options, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              [s.id, s.name, s.desc || "", s.icon || "⚙️", s.instruction, null, "官方默认", 1, 1, s.tier || "light", customOptionsStr, s.category || "text"]
+              'INSERT INTO ai_skills (id, name, `desc`, icon, instruction, creator_id, creator_name, is_public, is_system, tier, custom_options, category, enable_upload, upload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              [s.id, s.name, s.desc || "", s.icon || "⚙️", s.instruction, null, "官方默认", 1, 1, s.tier || "light", customOptionsStr, s.category || "text", s.enableUpload ? 1 : 0, s.uploadType || "all"]
             );
             console.log(`Seeded default system skill: ${s.name}`);
           } else {
             // Update existing system skill options and instructions to stay synchronized with definitions
             await db.query(
-              'UPDATE ai_skills SET name = ?, `desc` = ?, icon = ?, instruction = ?, tier = ?, custom_options = ?, category = ? WHERE id = ?',
-              [s.name, s.desc || "", s.icon || "⚙️", s.instruction, s.tier || "light", customOptionsStr, s.category || "text", s.id]
+              'UPDATE ai_skills SET name = ?, `desc` = ?, icon = ?, instruction = ?, tier = ?, custom_options = ?, category = ?, enable_upload = ?, upload_type = ? WHERE id = ?',
+              [s.name, s.desc || "", s.icon || "⚙️", s.instruction, s.tier || "light", customOptionsStr, s.category || "text", s.enableUpload ? 1 : 0, s.uploadType || "all", s.id]
             );
           }
         }
@@ -1011,6 +1011,8 @@ async function startServer() {
         isSystem: Boolean(skill.is_system),
         tier: skill.tier || "light",
         category: skill.category || "text",
+        enableUpload: Boolean(skill.enable_upload),
+        uploadType: skill.upload_type || "all",
         customOptions: (() => {
           if (!skill.custom_options) return null;
           try {
@@ -1134,7 +1136,7 @@ async function startServer() {
   });
 
   app.post("/api/skills", authenticateToken, async (req: any, res) => {
-    const { name, desc, icon, instruction, isPublic, tier, customOptions, category } = req.body;
+    const { name, desc, icon, instruction, isPublic, tier, customOptions, category, enableUpload, uploadType } = req.body;
     if (!name || !instruction) {
       return res.status(400).json({ error: "名称和系统提示词属于必填字段" });
     }
@@ -1146,8 +1148,8 @@ async function startServer() {
     try {
       const customOptionsStr = customOptions ? JSON.stringify(customOptions) : null;
       await db.query(
-        "INSERT INTO ai_skills (id, name, `desc`, icon, instruction, creator_id, creator_name, is_public, tier, custom_options, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, name, desc || "", icon || "⚙️", instruction, userId, username, isPublic !== false ? 1 : 0, tier || "light", customOptionsStr, category || "text"]
+        "INSERT INTO ai_skills (id, name, `desc`, icon, instruction, creator_id, creator_name, is_public, tier, custom_options, category, enable_upload, upload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, name, desc || "", icon || "⚙️", instruction, userId, username, isPublic !== false ? 1 : 0, tier || "light", customOptionsStr, category || "text", enableUpload ? 1 : 0, uploadType || "all"]
       );
 
       // Automatically install for creator
@@ -1170,6 +1172,8 @@ async function startServer() {
           isSystem: false,
           tier: tier || "light",
           category: category || "text",
+          enableUpload: Boolean(enableUpload),
+          uploadType: uploadType || "all",
           customOptions: customOptions || null,
           isInstalled: true
         }
@@ -1180,9 +1184,92 @@ async function startServer() {
     }
   });
 
+  app.post("/api/plugins/generate", authenticateToken, async (req: any, res) => {
+    const { prompt, existingCode, modelSlot } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "请输入生成提示词或修改要求" });
+    }
+
+    const slot = modelSlot || 'script';
+
+    try {
+      const [rows]: any = await db.query('SELECT `value` FROM settings WHERE `key` = ?', ['global_api_config']);
+      const baseConfig = JSON.parse(JSON.stringify(DEFAULT_API_CONFIG));
+      let globalConfig = baseConfig;
+      if (rows.length > 0) {
+        const dbConfig = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        globalConfig = { ...baseConfig };
+        Object.keys(dbConfig).forEach(key => {
+          if (globalConfig[key]) {
+            globalConfig[key] = { ...globalConfig[key], ...dbConfig[key] };
+          } else {
+            globalConfig[key] = dbConfig[key];
+          }
+        });
+      }
+
+      const systemInstruction = `You are an expert React frontend developer. Build a polished, premium, fully functional single-screen utility component or mini-app.
+Requirements:
+1. ONLY return standard executable modern React code (no HTML wrapping, no markdown block wrappers). Start immediately with ES import statements.
+2. The code MUST render correctly inside:
+   <script type="text/babel" data-type="module">
+     [YOUR_CODE_HERE]
+   </script>
+3. Supported import map targets:
+   - "react" (React 18)
+   - "react-dom/client" (ReactDOM.createRoot)
+   - "lucide-react" (for beautiful vector icons)
+   - "framer-motion" (for smooth micro-interactions/transitions)
+   - "recharts" (for visual analytics and beautiful interactive charts)
+4. Use Tailwind CSS utility classes exclusively. Keep the design modern, balanced, utilizing spacious negative space and refined color schemes (no harsh/raw gradients).
+5. The entry point MUST mount the main App component:
+   const root = ReactDOM.createRoot(document.getElementById('root'));
+   root.render(<App />);
+6. If existingCode is provided, modify or expand it incrementally following the user's instructions while keeping existing features intact unless requested otherwise. No system credit footers, online badges, port numbers, or developer jargon. Just build a clean, elegant tool.`;
+
+      let promptToModel = prompt;
+      if (existingCode) {
+        promptToModel = `Here is the current working React plugin code:\n\n\`\`\`javascript\n${existingCode}\n\`\`\`\n\nModify it according to the user request:\n${prompt}\n\nPlease generate and return the updated full React code. Follow all instructions strictly.`;
+      } else {
+        promptToModel = `Please generate a self-contained React plugin with Tailwind CSS based on this requirement: ${prompt}. Follow all instructions strictly.`;
+      }
+
+      const modelName = globalConfig[slot]?.model || "gemini-3.5-flash";
+      const body: any = {
+        model: modelName,
+        contents: [{ parts: [{ text: promptToModel }] }]
+      };
+      if (systemInstruction) {
+        body.systemInstruction = { parts: [{ text: systemInstruction }] };
+      }
+
+      console.log(`[PluginGenerator] Generating using slot: ${slot}, model: ${modelName}`);
+      const apiResult = await imageAgent.callApi(slot, 'generateContent', body, globalConfig);
+      
+      let generatedText = apiResult.text || "";
+      let cleanCode = generatedText.trim();
+      
+      if (cleanCode.startsWith("```")) {
+        const lines = cleanCode.split("\n");
+        if (lines[0].startsWith("```")) {
+          lines.shift();
+        }
+        if (lines[lines.length - 1] === "```") {
+          lines.pop();
+        }
+        cleanCode = lines.join("\n").trim();
+      }
+
+      res.json({ success: true, code: cleanCode });
+    } catch (err: any) {
+      console.error("[PluginGenerator] Failed to generate plugin code:", err);
+      res.status(500).json({ error: "生成插件代码失败", details: err.message });
+    }
+  });
+
   app.put("/api/skills/:id", authenticateToken, async (req: any, res) => {
     const { id } = req.params;
-    const { name, desc, icon, instruction, isPublic, tier, customOptions, category } = req.body;
+    const { name, desc, icon, instruction, isPublic, tier, customOptions, category, enableUpload, uploadType } = req.body;
 
     if (!name || !instruction) {
       return res.status(400).json({ error: "名称和系统提示词属于必填字段" });
@@ -1204,8 +1291,8 @@ async function startServer() {
 
       const customOptionsStr = customOptions ? JSON.stringify(customOptions) : null;
       await db.query(
-        "UPDATE ai_skills SET name = ?, `desc` = ?, icon = ?, instruction = ?, is_public = ?, tier = ?, custom_options = ?, category = ? WHERE id = ?",
-        [name, desc || "", icon || "⚙️", instruction, isPublic !== false ? 1 : 0, tier || "light", customOptionsStr, category || "text", id]
+        "UPDATE ai_skills SET name = ?, `desc` = ?, icon = ?, instruction = ?, is_public = ?, tier = ?, custom_options = ?, category = ?, enable_upload = ?, upload_type = ? WHERE id = ?",
+        [name, desc || "", icon || "⚙️", instruction, isPublic !== false ? 1 : 0, tier || "light", customOptionsStr, category || "text", enableUpload ? 1 : 0, uploadType || "all", id]
       );
 
       res.json({ success: true, message: "技能已更新" });
@@ -1463,25 +1550,31 @@ async function startServer() {
         }
 
         if (!matchedHistory) {
-          // Heuristic match with 90 seconds sliding window and unique constraint
-          matchedHistory = historyRows.find((h: any) => {
-            if (matchedHistoryIds.has(String(h.id))) return false;
+          // Robust heuristic match: find the unmatched history item of the same type that is closest in time (up to 2 hours)
+          let bestMatch: any = null;
+          let bestDiff = Infinity;
 
-            const hTime = Number(h.timestamp);
-            const timeDiff = Math.abs(hTime - spentTime);
-            if (timeDiff > 90000) return false;
+          for (const h of historyRows) {
+            if (matchedHistoryIds.has(String(h.id))) continue;
 
             // Type match verification
             const isVideoSpent = normalized.includes('video') || normalized.includes('视频') || normalized.includes('seedance');
             const isVideoHistory = h.type === 'video';
-            if (isVideoSpent !== isVideoHistory) return false;
+            if (isVideoSpent !== isVideoHistory) continue;
 
             const isImageSpent = normalized.includes('image') || normalized.includes('图片') || normalized.includes('图') || normalized.includes('banana');
             const isImageHistory = h.type === 'image';
-            if (isImageSpent !== isImageHistory) return false;
+            if (isImageSpent !== isImageHistory) continue;
 
-            return true;
-          });
+            const hTime = Number(h.timestamp);
+            const timeDiff = Math.abs(hTime - spentTime);
+
+            if (timeDiff <= 2 * 3600 * 1000 && timeDiff < bestDiff) {
+              bestDiff = timeDiff;
+              bestMatch = h;
+            }
+          }
+          matchedHistory = bestMatch;
         }
 
         if (matchedHistory) {
@@ -2849,41 +2942,15 @@ async function startServer() {
           // Ids Map for names
           const agentMap: Record<string, string> = {
             'CEO': 'ceo', '导师': 'ceo', '大脑': 'ceo', 'AI': 'ceo', '统筹': 'ceo', '首席执行官': 'ceo',
-            '编剧': 'script', '创意': 'script', '大纲': 'script', '灵感': 'script', '剧本': 'script',
-            '分析': 'script_analyzer', '拉片': 'script_analyzer', '分析专家': 'script_analyzer',
-            '改写': 'script_rewriter', '洗稿': 'script_rewriter',
-            '分镜': 'director', '镜头': 'director', '运镜': 'director',
-            '提示词': 'prompts', '指令': 'prompts', 'Prompt': 'prompts',
-            '生图': 'image_gemini', '画图': 'image_gemini', '图片': 'image_gemini', 'GPT生图': 'image_gemini',
-            '专家': 'image_gemini', '生图专家': 'image_gemini', '参考图': 'image_gemini', '绘画': 'image_gemini',
-            '导演': 'video', '剧照': 'image_gemini', '效果图': 'image_gemini',
-            '视频': 'video', '动态': 'video', '动画': 'video',
-            '影音': 'video_analyzer', '视频分析': 'video_analyzer', '分镜拆解': 'video_analyzer',
-            '制剧': 'director_producer', '制片': 'director_producer',
-            '灵境': 'spirit_space', '空间': 'spirit_space', '场景': 'spirit_space',
-            '招聘': 'recruiter', '招聘会': 'recruiter', '智能体': 'ceo', '超级员工': 'ceo',
-            '质检': 'qc', '审计': 'qc'
+            '智能体': 'ceo', '超级员工': 'ceo', '小逻': 'ceo'
           };
 
           let respondingAgentId: string | null = null;
-          let displayName = mentionedName || 'AI专家';
+          let displayName = mentionedName || '小逻的大脑 (CEO)';
           let customSystemInstruction = agentContext?.systemInstruction;
 
           const agentIdToNameMap: Record<string, string> = {
-            'ceo': '首席执行官 CEO',
-            'script': '创作剧本专家',
-            'script_analyzer': '分析剧本专家',
-            'video_analyzer': '影音拉片专家',
-            'script_rewriter': '剧本改写专家',
-            'director_producer': '拆解剧本专家',
-            'spirit_space': '灵境空间专家',
-            'prompts': '视频提示词专家',
-            'image': '生图专家 (GPT)',
-            'image_gemini': 'gemini3.1',
-            'video': '生视频专家',
-            'realperson_video': '真人视频专家',
-            'recruiter': '招聘主管',
-            'qc': '质检审计'
+            'ceo': '小逻的大脑 (CEO)'
           };
 
           if (agentContext && agentContext.agentId) {
@@ -2949,19 +3016,7 @@ async function startServer() {
               const chatHistory = history.reverse().map((h: any) => `${h.username || h.agent_name || 'AI'}: ${h.content}`).join('\n');
 
               const agentRoles: Record<string, string> = {
-                'ceo': '团队领导者和首席执行官，提供战略决策和整体协调',
-                'script': '资深编剧和创意策划，擅长剧本创作',
-                'script_analyzer': '顶级剧本分析专家，擅长深度拉片和剧本结构拆解',
-                'script_rewriter': '剧本改写专家，擅长彻底规避版权风险并重新创作剧本',
-                'prompts': '提示词专家，精通 AI 会话和生图指令',
-                'image_gemini': '生图专家，擅长通过文本生成极高艺术性的图片',
-                'video': '视频专家，擅长生成高质量视频内容',
-                'video_analyzer': '影音拉片专家，擅长视频分镜深度拆解和视听语言分析',
-                'director_producer': '拆解剧本专家，擅长统筹制片、剧本拆解与资产协同',
-                'spirit_space': '灵境空间专家，擅长场景设计与超写实全景资产构建',
-                'realperson_video': '数字人视频专家，擅长生成逼真的真人解说和人物视频',
-                'recruiter': '智能体猎头，擅长分析需求并推荐最合适的AI协同方案',
-                'qc': '质量控制专家，负责对产出的内容进行严格审计和优化建议'
+                'ceo': '小逻的大脑 (CEO)，团队领导者和首席执行官，提供战略决策和整体协调'
               };
               const roleDesc = agentRoles[respondingAgentId!] || 'AI协同专家';
 

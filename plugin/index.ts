@@ -14,10 +14,10 @@ export const PLUGINS: AiSkill[] = new Proxy(SYSTEM_PLUGINS, {
           .filter(p => !deletedIds.includes(p.id))
           .map(p => {
             if (editedPlugins[p.id]) {
-              return { ...p, ...editedPlugins[p.id] };
+              return { ...p, ...editedPlugins[p.id], isPublic: true };
             }
-            return p;
-          }).concat(userPlugins);
+            return { ...p, isPublic: true };
+          }).concat(userPlugins.map((p: any) => ({ ...p, isPublic: true })));
         const val = Reflect.get(active, prop, receiver);
         if (typeof val === 'function') {
           return val.bind(active);

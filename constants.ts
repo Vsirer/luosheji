@@ -70,27 +70,7 @@ export const RECOMMENDED_AUTHORS: Record<string, { name: string; description: st
     { name: '周浩晖', description: '高智商犯罪，极智博弈，冷静理性。' },
   ],
   'suspense-supernatural': [
-    { name: '崔走召', description: '灵异悬疑、幽默接地气，民间术法与都市怪谈相结合，台词通俗风趣而富含人生哲理。' },
-    { name: '陈十三', description: '奇幻灵异史诗、浪漫旷世虐恋（如《我和僵尸有个约会》），台词张力十足、极具戏剧冲突与宿命感。' },
-  ],
-  'comedy': [
-    { name: '宁财神', description: '无厘头市井幽默，金句频出，亦庄亦谐。' },
-    { name: '开心麻花', description: '舞台式喜剧，密集有梗，反差笑点多。' },
-    { name: '徐峥', description: '生活黑色幽默，自嘲反差，荒诞日常。' },
-    { name: '伍仕贤', description: '都市轻喜剧，俏皮犀利，松弛感笑点。' },
-    { name: '李洪绸', description: '市井幽默反转，小人物骗局与黑色幽默。' },
-  ],
-  'fantasy': [
-    { name: '桐华', description: '奇幻虐恋，世界观宏大，浪漫凄美宿命感。' },
-    { name: '九鹭非香', description: '轻奇幻甜虐，设定新奇，治愈仙侠。' },
-    { name: '沧月', description: '武侠奇幻美学，冷艳华丽，东方氛围。' },
-    { name: '天蚕土豆', description: '热血玄幻爽文，升级流，打斗张力。' },
-    { name: '猫腻', description: '东方奇幻权谋，哲学思辨，世界观宏大。' },
-  ],
-  'latin': [
-    { name: '肥皂剧(Telenovela)', description: '强戏剧冲突，人物极致，热烈张力。' },
-    { name: '巴西风格', description: '家庭恩怨，豪门复仇，节奏极快。' },
-    { name: '毒枭剧风格', description: '黑帮复仇，暴力美学，底层逆袭。' },
+    { name: '崔走召', description: '灵异悬疑、幽默接地气、民间术法与都市怪谈相结合。' },
     { name: '魔幻现实主义', description: '奇幻现实结合，宿命感，本土传说。' },
     { name: '西语连载剧', description: '伦理情感纠葛，家族秘辛，冲突不断。' },
   ],

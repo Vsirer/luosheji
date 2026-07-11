@@ -633,16 +633,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onLogout, onUserUpdate
                         {item.status === '失败' ? (
                           <span className="text-xs text-zinc-300 font-medium">—</span>
                         ) : item.asset ? (
-                          (item.asset.type === 'image' || item.asset.imageUrl) ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedAsset(item.asset)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full text-indigo-700 bg-indigo-50/70 border border-indigo-100 hover:bg-indigo-100 hover:text-indigo-800 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                            >
-                              <Image className="w-3.5 h-3.5" />
-                              <span>图片资产</span>
-                            </button>
-                          ) : (item.asset.type === 'video' || item.asset.videoUrl) ? (
+                          (item.asset.type === 'video' || item.asset.videoUrl) ? (
                             <button
                               type="button"
                               onClick={() => setSelectedAsset(item.asset)}
@@ -650,6 +641,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onLogout, onUserUpdate
                             >
                               <Video className="w-3.5 h-3.5" />
                               <span>视频资产</span>
+                            </button>
+                          ) : (item.asset.type === 'image' || item.asset.imageUrl) ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAsset(item.asset)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full text-indigo-700 bg-indigo-50/70 border border-indigo-100 hover:bg-indigo-100 hover:text-indigo-800 transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                            >
+                              <Image className="w-3.5 h-3.5" />
+                              <span>图片资产</span>
                             </button>
                           ) : (
                             <button

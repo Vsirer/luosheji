@@ -40,9 +40,17 @@ export const WebSandbox: React.FC<WebSandboxProps> = ({ code, className, onMessa
             }
           </script>
           <script src="https://cdn.tailwindcss.com"></script>
-          <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-          <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
           <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+          <script type="module">
+            import * as React from 'react';
+            import * as ReactDOMClient from 'react-dom/client';
+            import * as ReactDOM from 'react-dom';
+            import * as LucideReact from 'lucide-react';
+            
+            window.React = React;
+            window.ReactDOM = { ...ReactDOM, ...ReactDOMClient };
+            window.LucideReact = LucideReact;
+          </script>
           <style>
             body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
           </style>

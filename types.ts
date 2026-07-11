@@ -179,6 +179,8 @@ export interface Config {
   videoSeedanceMini: ApiConfig;
   gptImage: ApiConfig;
   claudeSonnet: ApiConfig;
+  customInterfaces?: Record<string, ApiConfig & { title: string; isCustom?: boolean }>;
+  [key: string]: any;
 }
 
 export type ApiConfigKey = 'script' | 'image' | 'video' | 'videoVeoFast' | 'videoSeedance' | 'videoSeedanceMini' | 'gptImage' | 'claudeSonnet';

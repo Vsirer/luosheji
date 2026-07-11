@@ -19,7 +19,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { Config } from '../types';
 import { toBase64 } from '../lib/utils';
-import { directorAgent } from '../services/directorAgent';
+import { directorAgent } from './agents/directorAgent';
 
 interface ScriptVideoDissectorProps {
   config: Config;

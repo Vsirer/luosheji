@@ -262,7 +262,14 @@ export const getAssetCategory = (asset: any): { main: "图片" | "视频" | "音
 };
 
 export const getActualCanvasCardSizeAndPort = (item: HistoryItem) => {
-  if (item.status === "pipeline_pending" || item.status === "pending" || item.status === "running" || (item.config?.isPipelineNode && (item.status === "error" || item.status === "failed"))) {
+  if (
+    item.status === "pipeline_pending" ||
+    item.status === "pending" ||
+    item.status === "running" ||
+    (item.status as any) === "pipeline_completed" ||
+    (item.config?.isPipelineNode &&
+      (item.status === "error" || item.status === "failed"))
+  ) {
     const w = 360;
     const h = 340;
     return {
@@ -284,7 +291,7 @@ export const getActualCanvasCardSizeAndPort = (item: HistoryItem) => {
   }
   if (item.config?.isSkillNode || item.config?.isIntegratedModelNode) {
     const w = 360;
-    const h = 460;
+    const h = 360;
     return {
       width: w,
       height: h,

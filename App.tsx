@@ -22,17 +22,6 @@ const App: React.FC = () => {
     if (saved && saved !== 'guest') {
       return saved;
     }
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('share_media_id') && localStorage.getItem('isGuest') !== 'false') {
-      localStorage.setItem('isGuest', 'true');
-      localStorage.setItem('token', 'guest');
-      return 'guest';
-    }
-    if (saved) return saved;
-    if (localStorage.getItem('isGuest') === 'true') {
-      localStorage.setItem('token', 'guest');
-      return 'guest';
-    }
     return null;
   });
   const [user, setUser] = useState<any>(() => {
@@ -41,16 +30,6 @@ const App: React.FC = () => {
       const savedUser = localStorage.getItem('user');
       if (savedToken && savedToken !== 'guest' && savedUser) {
         return JSON.parse(savedUser);
-      }
-      const params = new URLSearchParams(window.location.search);
-      if (params.has('share_media_id') && localStorage.getItem('isGuest') !== 'false') {
-        const guestUser = { id: 'guest', username: '游客', role: 'user', points: 0 };
-        localStorage.setItem('user', JSON.stringify(guestUser));
-        return guestUser;
-      }
-      if (savedUser) return JSON.parse(savedUser);
-      if (localStorage.getItem('isGuest') === 'true') {
-        return { id: 'guest', username: '游客', role: 'user', points: 0 };
       }
       return null;
     } catch (e) {
@@ -342,6 +321,19 @@ const App: React.FC = () => {
                 if (localItem.position) {
                   merged[index].position = localItem.position;
                 }
+
+                // Keep parentId if available locally to prevent connection lines disappearing
+                if (localItem.parentId !== undefined) {
+                  merged[index].parentId = localItem.parentId;
+                }
+
+                // Keep local config, especially for drafts, to avoid overwriting typed prompts and configurations during polling
+                if (localItem.config) {
+                  merged[index].config = {
+                    ...(merged[index].config || {}),
+                    ...localItem.config
+                  };
+                }
                 
                 // Keep naturalAspectRatio if available
                 if (localItem.naturalAspectRatio) {
@@ -460,10 +452,21 @@ const App: React.FC = () => {
     }
   };
 
-  // Load smart history and latest pipeline from MySQL
+  // Load smart history and latest pipeline from MySQL with automatic active-tab polling
   useEffect(() => {
     loadData();
     refreshUser();
+
+    if (!token) return;
+
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadData();
+        refreshUser();
+      }
+    }, 10000); // Poll every 10 seconds to keep different browsers in sync
+
+    return () => clearInterval(intervalId);
   }, [token]);
 
   const [smartImageConfig, setSmartImageConfig] = useState<SmartImageConfig>({

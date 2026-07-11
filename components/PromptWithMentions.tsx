@@ -91,7 +91,11 @@ export function htmlToText(node: Node): string {
     if (child.nodeType === Node.ELEMENT_NODE) {
       const el = child as HTMLElement;
       if (el.classList.contains("mention")) {
-        const mentionText = el.getAttribute("data-mention") || el.innerText || "";
+        const lastChild = el.lastElementChild;
+        let mentionText = el.getAttribute("data-mention") || (lastChild ? lastChild.textContent : null) || el.innerText || "";
+        if (mentionText.startsWith("@ @")) {
+          mentionText = "@" + mentionText.slice(3);
+        }
         text += mentionText;
       } else if (el.tagName === "BR") {
         text += "\n";
