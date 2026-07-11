@@ -260,12 +260,12 @@ async function startServer() {
           
           // Migrate models
           if (config.script) {
-            if (config.script.model === 'gemini-3.1-pro' || config.script.model === 'gemini-3.5-flash') {
+            if (config.script.model === 'gemini-3.1-pro') {
               config.script.model = 'gemini-1.5-pro';
               changed = true;
             }
-            if (config.script.path?.includes('gemini-3.1-pro') || config.script.path?.includes('gemini-3.5-flash')) {
-              config.script.path = config.script.path.replace('gemini-3.1-pro', 'gemini-1.5-pro').replace('gemini-3.5-flash', 'gemini-1.5-pro');
+            if (config.script.path?.includes('gemini-3.1-pro')) {
+              config.script.path = config.script.path.replace('gemini-3.1-pro', 'gemini-1.5-pro');
               changed = true;
             }
           }
@@ -3834,6 +3834,59 @@ ${chatHistory}
     if (password && password !== '********') process.env.DB_PASSWORD = password;
     if (database) process.env.DB_NAME = database;
 
+    // Also save to .env file for persistence across server restarts/rebuilds
+    try {
+      let envContent = '';
+      if (fs.existsSync('.env')) {
+        envContent = fs.readFileSync('.env', 'utf8');
+      }
+      
+      const envLines = envContent.split('\n');
+      const updatedKeys = new Set();
+      
+      const newLines = envLines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return line;
+        
+        const index = line.indexOf('=');
+        if (index === -1) return line;
+        
+        const key = line.substring(0, index).trim();
+        if (key === 'DB_HOST' && host) {
+          updatedKeys.add('DB_HOST');
+          return `DB_HOST=${host}`;
+        }
+        if (key === 'DB_PORT' && port) {
+          updatedKeys.add('DB_PORT');
+          return `DB_PORT=${port}`;
+        }
+        if (key === 'DB_USER' && user) {
+          updatedKeys.add('DB_USER');
+          return `DB_USER=${user}`;
+        }
+        if (key === 'DB_PASSWORD' && password && password !== '********') {
+          updatedKeys.add('DB_PASSWORD');
+          return `DB_PASSWORD=${password}`;
+        }
+        if (key === 'DB_NAME' && database) {
+          updatedKeys.add('DB_NAME');
+          return `DB_NAME=${database}`;
+        }
+        return line;
+      });
+      
+      if (host && !updatedKeys.has('DB_HOST')) newLines.push(`DB_HOST=${host}`);
+      if (port && !updatedKeys.has('DB_PORT')) newLines.push(`DB_PORT=${port}`);
+      if (user && !updatedKeys.has('DB_USER')) newLines.push(`DB_USER=${user}`);
+      if (password && password !== '********' && !updatedKeys.has('DB_PASSWORD')) newLines.push(`DB_PASSWORD=${password}`);
+      if (database && !updatedKeys.has('DB_NAME')) newLines.push(`DB_NAME=${database}`);
+      
+      fs.writeFileSync('.env', newLines.join('\n'), 'utf8');
+      console.log('>>> [SERVER] Database configuration saved persistently to .env file.');
+    } catch (e: any) {
+      console.error('Failed to save .env file:', e);
+    }
+
     // Trigger re-initialization
     try {
       dbInitialized = false; // Reset to false while re-initializing
@@ -3841,7 +3894,7 @@ ${chatHistory}
       dbInitialized = true;
       res.json({ 
         success: true, 
-        message: "数据库配置已在当前会话中更新并应用。请注意，永久更改仍需在 AI Studio Secrets 中更新环境变量。" 
+        message: "数据库配置已在当前会话中更新并应用。配置已成功写入本地 .env 文件进行持久化保存。" 
       });
     } catch (error: any) {
       console.error('Failed to apply new database configuration:', error);
@@ -3879,6 +3932,54 @@ ${chatHistory}
       await db.query('INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?', 
         ['oss_config', JSON.stringify(config), JSON.stringify(config)]);
       
+      // Also save to .env file for persistence across server restarts/rebuilds
+      try {
+        let envContent = '';
+        if (fs.existsSync('.env')) {
+          envContent = fs.readFileSync('.env', 'utf8');
+        }
+        
+        const envLines = envContent.split('\n');
+        const updatedKeys = new Set();
+        
+        const newLines = envLines.map(line => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return line;
+          
+          const index = line.indexOf('=');
+          if (index === -1) return line;
+          
+          const key = line.substring(0, index).trim();
+          if (key === 'OSS_REGION' && region) {
+            updatedKeys.add('OSS_REGION');
+            return `OSS_REGION=${region}`;
+          }
+          if (key === 'OSS_ACCESS_KEY_ID' && accessKeyId) {
+            updatedKeys.add('OSS_ACCESS_KEY_ID');
+            return `OSS_ACCESS_KEY_ID=${accessKeyId}`;
+          }
+          if (key === 'OSS_ACCESS_KEY_SECRET' && accessKeySecret && accessKeySecret !== '********') {
+            updatedKeys.add('OSS_ACCESS_KEY_SECRET');
+            return `OSS_ACCESS_KEY_SECRET=${accessKeySecret}`;
+          }
+          if (key === 'OSS_BUCKET' && bucket) {
+            updatedKeys.add('OSS_BUCKET');
+            return `OSS_BUCKET=${bucket}`;
+          }
+          return line;
+        });
+        
+        if (region && !updatedKeys.has('OSS_REGION')) newLines.push(`OSS_REGION=${region}`);
+        if (accessKeyId && !updatedKeys.has('OSS_ACCESS_KEY_ID')) newLines.push(`OSS_ACCESS_KEY_ID=${accessKeyId}`);
+        if (accessKeySecret && accessKeySecret !== '********' && !updatedKeys.has('OSS_ACCESS_KEY_SECRET')) newLines.push(`OSS_ACCESS_KEY_SECRET=${accessKeySecret}`);
+        if (bucket && !updatedKeys.has('OSS_BUCKET')) newLines.push(`OSS_BUCKET=${bucket}`);
+        
+        fs.writeFileSync('.env', newLines.join('\n'), 'utf8');
+        console.log('>>> [SERVER] OSS configuration saved persistently to .env file.');
+      } catch (err: any) {
+        console.error('Failed to save OSS settings to .env file:', err);
+      }
+
       updateOSSConfig(config);
       res.json({ success: true, message: "OSS settings updated" });
     } catch (e: any) {

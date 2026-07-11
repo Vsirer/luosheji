@@ -127,6 +127,30 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { SYSTEM_SKILLS } from "../skills/definitions";
 import { PLUGINS } from "../plugin";
+import * as Icons from "lucide-react";
+
+const SkillIcon = ({ icon, className = "w-3.5 h-3.5" }: { icon: any; className?: string }) => {
+  if (!icon) return <Sparkles className={className} />;
+  
+  if (typeof icon === 'function' || (typeof icon === 'object' && icon.$$typeof)) {
+    const IconComponent = icon;
+    return <IconComponent className={className} />;
+  }
+  
+  if (typeof icon === 'string') {
+    const isEmoji = /\p{Emoji}/u.test(icon) || icon.length <= 2;
+    if (isEmoji) {
+      return <span className="inline-flex items-center justify-center text-xs leading-none select-none" style={{ width: '14px', height: '14px' }}>{icon}</span>;
+    }
+    
+    const LucideIcon = (Icons as any)[icon];
+    if (LucideIcon) {
+      return <LucideIcon className={className} />;
+    }
+  }
+  
+  return <Sparkles className={className} />;
+};
 
 import { PerspectiveSim, PerspectiveParams } from "./PerspectiveSim";
 import { PointAndShootEditor } from "./PointAndShootEditor";
@@ -776,30 +800,45 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
 
   const handleSelectTextModel = (modelId: string) => {
     if (config && config.script) {
-      config.script.model = modelId;
+      // Find the custom interface if modelId is a custom interface key
+      const customInterface = config.customInterfaces?.[modelId];
       
-      // Find the model in customModels
-      const customM = customModels.find((m: any) => (m.model || m.id || m.name) === modelId);
-      
-      if (modelId === (config?.claudeSonnet?.model || "claude-sonnet-5")) {
-        config.script.endpoint = config?.claudeSonnet?.endpoint || 'https://api.vectorengine.ai';
-        config.script.apiKey = config?.claudeSonnet?.apiKey || '';
-        config.script.provider = config?.claudeSonnet?.provider || 'Third Party';
-        config.script.path = config?.claudeSonnet?.path || '';
-        config.script.protocolType = config?.claudeSonnet?.protocolType || 'openai';
-        config.script.displayName = config?.claudeSonnet?.displayName || 'Claude-sonnet-5';
-      } else if (customM && customM.endpoint) {
-        config.script.endpoint = customM.endpoint;
-        config.script.apiKey = customM.apiKey || '';
-        config.script.provider = customM.provider || 'Third Party';
-        config.script.path = customM.path || '/v1/chat/completions';
-        config.script.protocolType = 'openai';
-      } else if (initialConfigScriptRef.current) {
-        config.script.endpoint = initialConfigScriptRef.current.endpoint;
-        config.script.apiKey = initialConfigScriptRef.current.apiKey;
-        config.script.provider = initialConfigScriptRef.current.provider;
-        config.script.path = initialConfigScriptRef.current.path;
-        config.script.protocolType = initialConfigScriptRef.current.protocolType;
+      if (customInterface) {
+        config.script.model = customInterface.model;
+        config.script.endpoint = customInterface.endpoint;
+        config.script.apiKey = customInterface.apiKey || '';
+        config.script.provider = customInterface.provider || 'Third Party';
+        config.script.path = customInterface.path || '';
+        config.script.protocolType = customInterface.protocolType || 'openai';
+        config.script.displayName = customInterface.displayName || customInterface.title || modelId;
+      } else {
+        config.script.model = modelId;
+        
+        // Find the model in customModels
+        const customM = customModels.find((m: any) => (m.model || m.id || m.name) === modelId);
+        
+        if (modelId === (config?.claudeSonnet?.model || "claude-sonnet-5")) {
+          config.script.endpoint = config?.claudeSonnet?.endpoint || 'https://api.vectorengine.ai';
+          config.script.apiKey = config?.claudeSonnet?.apiKey || '';
+          config.script.provider = config?.claudeSonnet?.provider || 'Third Party';
+          config.script.path = config?.claudeSonnet?.path || '';
+          config.script.protocolType = config?.claudeSonnet?.protocolType || 'openai';
+          config.script.displayName = config?.claudeSonnet?.displayName || 'Claude-sonnet-5';
+        } else if (customM && customM.endpoint) {
+          config.script.endpoint = customM.endpoint;
+          config.script.apiKey = customM.apiKey || '';
+          config.script.provider = customM.provider || 'Third Party';
+          config.script.path = customM.path || '/v1/chat/completions';
+          config.script.protocolType = 'openai';
+          config.script.displayName = customM.name || modelId;
+        } else if (initialConfigScriptRef.current) {
+          config.script.endpoint = initialConfigScriptRef.current.endpoint;
+          config.script.apiKey = initialConfigScriptRef.current.apiKey;
+          config.script.provider = initialConfigScriptRef.current.provider;
+          config.script.path = initialConfigScriptRef.current.path;
+          config.script.protocolType = initialConfigScriptRef.current.protocolType;
+          config.script.displayName = initialConfigScriptRef.current.displayName;
+        }
       }
     }
     setLocalTextModel(modelId);
@@ -2457,7 +2496,11 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                   isInstalled: s.isInstalled,
                   tier: s.tier || "light",
                   customOptions: s.customOptions && s.customOptions.length > 0 ? s.customOptions : (systemSkill?.customOptions || undefined),
-                  category: s.category || "text"
+                  category: s.category || "text",
+                  enableUpload: s.enableUpload !== undefined ? s.enableUpload : systemSkill?.enableUpload,
+                  uploadType: s.uploadType || systemSkill?.uploadType || "all",
+                  promptLabel: s.promptLabel || systemSkill?.promptLabel,
+                  promptPlaceholder: s.promptPlaceholder || systemSkill?.promptPlaceholder
                 };
               });
               setWorkflowSkills((prev) => {
@@ -2482,7 +2525,11 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                       icon: f.icon || merged[existingIdx].icon,
                       tier: f.tier,
                       customOptions: f.customOptions && f.customOptions.length > 0 ? f.customOptions : merged[existingIdx].customOptions,
-                      category: f.category || merged[existingIdx].category
+                      category: f.category || merged[existingIdx].category,
+                      enableUpload: f.enableUpload !== undefined ? f.enableUpload : merged[existingIdx].enableUpload,
+                      uploadType: f.uploadType || merged[existingIdx].uploadType || "all",
+                      promptLabel: f.promptLabel || merged[existingIdx].promptLabel,
+                      promptPlaceholder: f.promptPlaceholder || merged[existingIdx].promptPlaceholder
                     };
                   } else if (f.isInstalled) {
                     merged.push(f);
@@ -5385,7 +5432,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       );
       return prev.map((h) => {
         if (h.id === itemId) {
-          return { ...h, status: "loading", error: undefined };
+          return { ...h, status: "loading", timestamp: Date.now(), error: undefined };
         }
         const isChild = targetChildren.some((c) => c.id === h.id);
         if (isChild) {
@@ -5394,7 +5441,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
             (modelType === "video" && h.type === "video") ||
             (modelType === "text" && h.type === "gen_script")
           ) {
-            return { ...h, status: "loading", error: undefined };
+            return { ...h, status: "loading", timestamp: Date.now(), error: undefined };
           }
         }
         return h;
@@ -5457,6 +5504,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                 ...child,
                 revisedPrompt: outputText,
                 status: "loading" as const,
+                timestamp: Date.now(),
                 config: imgConfig,
               };
               nextHistory = nextHistory.map((h) => (h.id === child.id ? updatedChild : h));
@@ -5490,6 +5538,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
                 ...child,
                 revisedPrompt: outputText,
                 status: "loading" as const,
+                timestamp: Date.now(),
                 config: vidConfig,
               };
               nextHistory = nextHistory.map((h) => (h.id === child.id ? updatedChild : h));
@@ -5936,7 +5985,7 @@ ${executionPrompt}
     setHistory((prev) =>
       prev.map((h) =>
         h.id === itemId
-          ? { ...h, status: "loading", error: undefined }
+          ? { ...h, status: "loading", timestamp: Date.now(), error: undefined }
           : h
       )
     );
@@ -6192,6 +6241,7 @@ ${executionPrompt}
             ...child,
             revisedPrompt: text,
             status: "loading",
+            timestamp: Date.now(),
             config: imgConfig,
           };
           nextHistory = nextHistory.map((h) => (h.id === child.id ? updatedChild : h));
@@ -6210,6 +6260,7 @@ ${executionPrompt}
             ...child,
             revisedPrompt: text,
             status: "loading",
+            timestamp: Date.now(),
             config: vidConfig,
           };
           nextHistory = nextHistory.map((h) => (h.id === child.id ? updatedChild : h));
@@ -6283,6 +6334,8 @@ ${executionPrompt}
         const configChanged = JSON.stringify(existing.config) !== JSON.stringify(item.config);
         const hiddenChanged = existing.hiddenFromCanvas !== item.hiddenFromCanvas;
         const errorChanged = existing.error !== item.error;
+        const promptChanged = existing.prompt !== item.prompt;
+        const revisedPromptChanged = existing.revisedPrompt !== item.revisedPrompt;
 
         if (
           !posChanged &&
@@ -6291,7 +6344,9 @@ ${executionPrompt}
           !vidChanged &&
           !configChanged &&
           !hiddenChanged &&
-          !errorChanged
+          !errorChanged &&
+          !promptChanged &&
+          !revisedPromptChanged
         ) {
           return item;
         }
@@ -6970,6 +7025,29 @@ ${executionPrompt}
         systemPrompt = REWRITE_SYSTEM_PROMPT;
         userPrompt = `请根据我的要求和设定的参数（篇幅：${scriptConfig.length.label}，单集时长：${scriptConfig.duration.label}），对以下剧本内容进行深度改写，在规避版权的同时保持原有的叙事张力和调性：\n\n${prompt}`;
         parts.push({ text: `${systemPrompt}\n\n${userPrompt}` });
+      } else if (activeSubTab !== "create" && activeSubTab !== "createScript" && activeSubTab !== "create-script" && activeSubTab !== "director") {
+        // Custom skill support inside script generation
+        const activeTabStr = activeSubTab as any;
+        const customSkill = workflowSkills.find(
+          (s) => s.id === activeTabStr || s.id === activeTabStr.replace(/_/, "-")
+        );
+        if (customSkill) {
+          systemPrompt = customSkill.instruction || "你是一个实用的AI短剧创作助手。";
+          let optionsText = "";
+          if (customSkill.customOptions && customSkill.customOptions.length > 0) {
+            optionsText = "设定参数：\n";
+            customSkill.customOptions.forEach((opt: any) => {
+              const val = scriptConfig[opt.id] || opt.choices?.[0] || "";
+              optionsText += `- ${opt.name}: ${val}\n`;
+            });
+          }
+          userPrompt = `${optionsText}\n输入内容/指令：\n${prompt}`;
+          parts.push({ text: `${systemPrompt}\n\n${userPrompt}` });
+        } else {
+          systemPrompt = `你是一位资深的编剧。`;
+          userPrompt = prompt;
+          parts.push({ text: `${systemPrompt}\n\n${userPrompt}` });
+        }
       } else {
         // Default: Create or Continue
         if (scriptConfig.creationType === "continue") {
@@ -6991,7 +7069,7 @@ ${prompt}
           const numEpisodes = parseInt(scriptConfig.length.id) || 1;
           let episodePrompt = "";
           if (numEpisodes === 1) {
-            episodePrompt = `提供第一集完整正文（确保符合每集${scriptConfig.duration.label}的时长要求，大约${Math.round(parseFloat(scriptConfig.duration.id) * 1200)}字以上，内容极其详尽、生动且富有张力，包含极其饱满有深度的台词、对白描述，以及细节表现丰富的动作和神态，拒绝用缩写或空泛的情节概述带过）。`;
+            episodePrompt = `提供第一集完整正文（确保符合每集${scriptConfig.duration.label}的时长要求，大约${Math.round(parseFloat(scriptConfig.duration.id) * 1200)}字以上，内容极其详尽、生动且富有张力，包含极其饱满有深度物和神态，拒绝用缩写或空泛的情节概述带过）。`;
           } else if (numEpisodes <= 5) {
             episodePrompt = `提供第1集至第${numEpisodes}集全部${numEpisodes}集的完整剧本正文（每集之间用 "---" 进行清晰分割，每集都包含完整、详实、无缩水的台词与对白、极具镜头感的场景和动作设计，并确保每集独立且都完全满足每集${scriptConfig.duration.label}的时长长度，每集实际字数都必须在${Math.round(parseFloat(scriptConfig.duration.id) * 1200)}字以上，整部作品内容必须极其丰富生动，杜绝任何敷衍了事的大纲概括）。`;
           } else {
@@ -7006,10 +7084,31 @@ ${prompt}
 2. 包含核心人物小传（3-5人）。
 3. 包含整体剧情大纲及${scriptConfig.length.label}的分集剧情简介。
 4. ${episodePrompt}
-5. 严格遵循所要求的套路、结构和遣词造句方式。`
+5. 严格遵循所要求的套路、结构 and 遣词造句方式。`
             : "";
         }
         parts.push({ text: `${systemPrompt}\n\n${userPrompt}` });
+      }
+
+      // Process uploaded files if any (multimodal or text files)
+      const configWithUploads = scriptConfig as any;
+      if (configWithUploads.uploadedFiles && configWithUploads.uploadedFiles.length > 0) {
+        configWithUploads.uploadedFiles.forEach((file: any) => {
+          if (file.textContent) {
+            parts.push({ text: `[参考文件 ${file.name} 内容]:\n${file.textContent}` });
+          } else if (file.data) {
+            const mimeType = file.mimeType || (file.data.split(";")[0]?.split(":")[1]);
+            const base64Data = file.data.split(",")[1];
+            if (mimeType && base64Data) {
+              parts.push({
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Data,
+                },
+              });
+            }
+          }
+        });
       }
 
       const requestBody = {
@@ -15280,11 +15379,13 @@ ${prompt}
                         <Cpu className="w-3.5 h-3.5 text-indigo-500 mr-1.5" />
                         <span className="text-[10px] text-indigo-400 mr-1 select-none font-bold">模型:</span>
                         <span className="text-[11px] font-bold text-indigo-600 mr-1">
-                          {localTextModel === "gemini-3.5-flash" && (!config?.script?.model || config?.script?.model === "gemini-3.5-flash")
-                            ? (config?.script?.displayName || "Gemini 3.5 Flash")
-                            : (localTextModel?.toLowerCase() === "claude-sonnet-5" || localTextModel === "Claude-sonnet-5") && (!config?.claudeSonnet?.model || config?.claudeSonnet?.model?.toLowerCase() === "claude-sonnet-5" || config?.claudeSonnet?.model === "Claude-sonnet-5")
-                              ? (config?.claudeSonnet?.displayName || "Claude-sonnet-5")
-                              : (customModels.find(m => m.model === localTextModel)?.name || (localTextModel === config?.script?.model && config?.script?.displayName ? config.script.displayName : (localTextModel === config?.claudeSonnet?.model && config?.claudeSonnet?.displayName ? config.claudeSonnet.displayName : localTextModel)))
+                          {config?.customInterfaces?.[localTextModel]
+                            ? (config.customInterfaces[localTextModel].displayName || config.customInterfaces[localTextModel].title)
+                            : localTextModel === "gemini-3.5-flash" && (!config?.script?.model || config?.script?.model === "gemini-3.5-flash")
+                              ? (config?.script?.displayName || "Gemini 3.5 Flash")
+                              : (localTextModel?.toLowerCase() === "claude-sonnet-5" || localTextModel === "Claude-sonnet-5") && (!config?.claudeSonnet?.model || config?.claudeSonnet?.model?.toLowerCase() === "claude-sonnet-5" || config?.claudeSonnet?.model === "Claude-sonnet-5")
+                                ? (config?.claudeSonnet?.displayName || "Claude-sonnet-5")
+                                : (customModels.find(m => m.model === localTextModel)?.name || (localTextModel === config?.script?.model && config?.script?.displayName ? config.script.displayName : (localTextModel === config?.claudeSonnet?.model && config?.claudeSonnet?.displayName ? config.claudeSonnet.displayName : localTextModel)))
                           }
                         </span>
                         <ChevronDown
@@ -15331,6 +15432,19 @@ ${prompt}
                                       }
                                     }
                                   });
+
+                                  // Add custom interfaces of type 'text'
+                                  if (config.customInterfaces) {
+                                    Object.entries(config.customInterfaces).forEach(([key, section]) => {
+                                      if (section && section.model && section.modelType === 'text') {
+                                        dynamicTextModels.push({
+                                          id: key, // Use custom interface key (e.g. ZHURUI) as modelId
+                                          name: section.displayName || section.title || section.model,
+                                          icon: Cpu
+                                        });
+                                      }
+                                    });
+                                  }
                                 } else {
                                   dynamicTextModels.push(
                                     { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", icon: Cpu },
@@ -15398,6 +15512,18 @@ ${prompt}
                           }
                         }
                       });
+
+                      // Add custom interfaces of type 'image'
+                      if (config.customInterfaces) {
+                        Object.entries(config.customInterfaces).forEach(([key, section]) => {
+                          if (section && section.model && section.modelType === 'image') {
+                            dynamicImageModels.push({
+                              label: section.displayName || section.title || section.model,
+                              value: key // Use key as unique identifier
+                            });
+                          }
+                        });
+                      }
                     } else {
                       dynamicImageModels.push(
                         { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
@@ -15816,6 +15942,43 @@ ${prompt}
                                             imageConfig.imageSize ||
                                             "1K";
                                         }
+
+                                        // Update config.image if it's a custom interface
+                                        if (config) {
+                                          const customInterface = config.customInterfaces?.[m.value] || Object.values(config.customInterfaces || {}).find((ci: any) => ci.model === m.value);
+                                          if (customInterface) {
+                                            config.image = {
+                                              ...config.image,
+                                              model: customInterface.model,
+                                              endpoint: customInterface.endpoint,
+                                              apiKey: customInterface.apiKey || '',
+                                              provider: customInterface.provider || 'Third Party',
+                                              path: customInterface.path || '',
+                                              protocolType: customInterface.protocolType || 'openai',
+                                              displayName: customInterface.displayName || customInterface.title || m.value,
+                                            };
+                                          } else {
+                                            const customM = customModels.find((cm: any) => (cm.model || cm.id || cm.name) === m.value);
+                                            if (customM) {
+                                              config.image = {
+                                                ...config.image,
+                                                model: m.value,
+                                                endpoint: customM.endpoint || '',
+                                                apiKey: customM.apiKey || '',
+                                                provider: customM.provider || 'Third Party',
+                                                path: customM.path || '',
+                                                protocolType: 'openai',
+                                                displayName: customM.name || m.value,
+                                              };
+                                            } else {
+                                              config.image = {
+                                                ...config.image,
+                                                model: m.value,
+                                              };
+                                            }
+                                          }
+                                        }
+
                                         setImageConfig(newConfig);
                                         setShowModelMenu(false);
                                       }}
@@ -16366,6 +16529,18 @@ ${prompt}
                                 });
                               }
                             });
+
+                            // Add custom interfaces of type 'video'
+                            if (config.customInterfaces) {
+                              Object.entries(config.customInterfaces).forEach(([key, section]) => {
+                                if (section && section.model && section.modelType === 'video') {
+                                  dynamicVideoModels.push({
+                                    label: section.displayName || section.title || section.model,
+                                    value: key // Use key as unique identifier
+                                  });
+                                }
+                              });
+                            }
                           } else {
                             dynamicVideoModels.push(
                               { label: "RH-SD2.0", value: "seedance2.0" },
@@ -16429,6 +16604,42 @@ ${prompt}
                                               videoMode: (VIDEO_MODES[m.value] && VIDEO_MODES[m.value]?.[0]?.value) || "all-around",
                                               duration: (VIDEO_MODEL_CONFIGS[m.value]?.durations?.[0] || "4") as any,
                                             });
+
+                                            // Update config.video if it's a custom interface
+                                            if (config) {
+                                              const customInterface = config.customInterfaces?.[m.value] || Object.values(config.customInterfaces || {}).find((ci: any) => ci.model === m.value);
+                                              if (customInterface) {
+                                                config.video = {
+                                                  ...config.video,
+                                                  model: customInterface.model,
+                                                  endpoint: customInterface.endpoint,
+                                                  apiKey: customInterface.apiKey || '',
+                                                  provider: customInterface.provider || 'Third Party',
+                                                  path: customInterface.path || '',
+                                                  protocolType: customInterface.protocolType || 'openai',
+                                                  displayName: customInterface.displayName || customInterface.title || m.value,
+                                                };
+                                              } else {
+                                                const customM = customModels.find((cm: any) => (cm.model || cm.id || cm.name) === m.value);
+                                                if (customM) {
+                                                  config.video = {
+                                                    ...config.video,
+                                                    model: m.value,
+                                                    endpoint: customM.endpoint || '',
+                                                    apiKey: customM.apiKey || '',
+                                                    provider: customM.provider || 'Third Party',
+                                                    path: customM.path || '',
+                                                    displayName: customM.name || m.value,
+                                                  };
+                                                } else {
+                                                  config.video = {
+                                                    ...config.video,
+                                                    model: m.value,
+                                                  };
+                                                }
+                                              }
+                                            }
+
                                             setShowVideoModelMenu(false);
                                           }}
                                           className={cn(
@@ -17278,16 +17489,22 @@ ${prompt}
                   取消
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (editingScript) {
                       setHistory((prev) =>
                         prev.map((h) =>
                           h.id === editingScript.id ? editingScript : h,
                         ),
                       );
+                      const currentScript = editingScript;
                       setEditingScript(null);
                       setError("修改已保存");
                       setIsCriticalError(false);
+                      try {
+                        await syncToCloud(currentScript);
+                      } catch (e) {
+                        console.error("Failed to sync edited script:", e);
+                      }
                     }
                   }}
                   className="px-8 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center space-x-2"

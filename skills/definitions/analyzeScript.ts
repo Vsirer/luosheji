@@ -29,6 +29,8 @@ export const analyzeScriptSkill: AiSkill = {
   isSystem: true,
   isInstalled: true,
   isPublic: true,
+  promptLabel: "待分析的剧本",
+  promptPlaceholder: "请粘贴您要分析的剧本正文或大纲，我们将为您进行综合性的全案拉片分析...",
   customOptions: [
     {
       id: "analysisDimension",

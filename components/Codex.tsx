@@ -833,7 +833,9 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                           )}
                           
                           {isFailed && step.error && (
-                            <p className="mt-1 text-[11px] text-rose-600 font-medium pl-9">{step.error}</p>
+                            <p className="mt-1 text-[11px] text-rose-600 font-medium pl-9">
+                              {typeof step.error === 'object' ? (step.error?.message || JSON.stringify(step.error)) : String(step.error)}
+                            </p>
                           )}
                         </div>
                       );
@@ -3334,7 +3336,50 @@ ${sourceMsg.content}`;
         step.status = 'running';
         step.error = undefined; // Clear previous error
         if (setHistory) {
-          setHistory(prev => prev.map(h => h.id === step.id ? { ...h, status: 'running', error: undefined } : h));
+          setHistory(prev => prev.map(h => h.id === step.id ? { 
+            ...h, 
+            status: 'running', 
+            error: undefined,
+            operationId: undefined,
+            imageUrl: undefined,
+            videoUrl: undefined,
+            url: undefined
+          } : h));
+        }
+
+        // Sync running state to database so polling won't read stale database records
+        const token = localStorage.getItem("token");
+        if (token) {
+          try {
+            const syncPayload = {
+              id: step.id,
+              type: step.type === 'script' ? 'gen_script' : step.type,
+              status: 'running',
+              imageUrl: null,
+              videoUrl: null,
+              timestamp: Date.now(),
+              config: {
+                title: step.label,
+                prompt: step.prompt,
+                revisedPrompt: step.prompt,
+                skillId: step.skillId || (step.type === 'image' ? 'image-generation' : step.type === 'video' ? 'video-generation' : 'script-generation'),
+                aspectRatio: step.aspectRatio || '1:1',
+                duration: step.duration || '5',
+                isPipelineNode: true,
+                pipelineId: pipelineMsgId
+              }
+            };
+            fetch('/api/user/history', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify(syncPayload)
+            }).catch(e => console.error("Async running-status sync error:", e));
+          } catch (syncErr) {
+            console.error("Failed to sync running status to database:", syncErr);
+          }
         }
 
         setMessages(prev => prev.map(m => {
@@ -3835,6 +3880,10 @@ ${sourceMsg.content}`;
             ...h, 
             status: 'running', 
             error: undefined,
+            operationId: undefined,
+            imageUrl: undefined,
+            videoUrl: undefined,
+            url: undefined,
             config: {
               ...h.config,
               prompt: updatedPrompt !== undefined ? updatedPrompt : h.config?.prompt,
@@ -3843,7 +3892,15 @@ ${sourceMsg.content}`;
             }
           };
         } else if (hIdx > stepIndex && hIdx !== -1) {
-          return { ...h, status: 'pipeline_pending', error: undefined };
+          return { 
+            ...h, 
+            status: 'pipeline_pending', 
+            error: undefined,
+            operationId: undefined,
+            imageUrl: undefined,
+            videoUrl: undefined,
+            url: undefined
+          };
         }
         return h;
       }));
@@ -5864,45 +5921,61 @@ ${sourceMsg.content}`;
                     <div className="space-y-4">
                       <label className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">关联接口配置 (只能关联1个)</label>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {[
-                          { key: 'script', label: '剧本/文本生成', desc: config.script.model || 'gemini-3.1-pro', group: 'text' },
-                          { key: 'image', label: '生图节点', desc: config.image.model || 'gemini-3.1-flash-image-preview', group: 'image' },
-                          { key: 'gptImage', label: 'GPT生图节点', desc: 'gpt-image-2', group: 'image' },
-                          { key: 'videoSeedance', label: '豆包生视频节点', desc: config.videoSeedance?.model || 'seedance2.0', group: 'video' },
-                          { key: 'videoSeedanceMini', label: '豆包Mini生视频节点', desc: config.videoSeedanceMini?.model || 'seedance-mini', group: 'video' },
-                        ].filter(opt => opt.group === employeeForm.type).map((opt) => {
-                          const isSelected = (employeeForm.apiConfigKeys || []).includes(opt.key as ApiConfigKey);
-                          return (
-                            <button
-                              key={opt.key}
-                              type="button"
-                              onClick={() => {
-                                // Only allow selecting one
-                                setEmployeeForm({
-                                  ...employeeForm,
-                                  apiConfigKeys: [opt.key as ApiConfigKey]
+                        {(() => {
+                          const apiOptions = [
+                            { key: 'script', label: '剧本/文本生成', desc: config.script.model || 'gemini-3.1-pro', group: 'text' },
+                            { key: 'image', label: '生图节点', desc: config.image.model || 'gemini-3.1-flash-image-preview', group: 'image' },
+                            { key: 'gptImage', label: 'GPT生图节点', desc: 'gpt-image-2', group: 'image' },
+                            { key: 'videoSeedance', label: '豆包生视频节点', desc: config.videoSeedance?.model || 'seedance2.0', group: 'video' },
+                            { key: 'videoSeedanceMini', label: '豆包Mini生视频节点', desc: config.videoSeedanceMini?.model || 'seedance-mini', group: 'video' },
+                          ];
+                          if (config?.customInterfaces) {
+                            Object.entries(config.customInterfaces).forEach(([key, sec]) => {
+                              const section = sec as any;
+                              if (section && section.model) {
+                                apiOptions.push({
+                                  key: key,
+                                  label: section.displayName || section.title || section.model,
+                                  desc: section.model,
+                                  group: section.modelType || 'text'
                                 });
-                              }}
-                              className={`flex flex-col items-start p-4 rounded-2xl border-2 transition-all text-left ${
-                                isSelected 
-                                  ? 'border-blue-600 bg-blue-50/50' 
-                                  : 'border-gray-100 bg-gray-50/30 hover:border-gray-200'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between w-full mb-1">
-                                <span className={`font-bold text-sm ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
-                                  {opt.label}
-                                </span>
-                                {isSelected && (
-                                  <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                                    <CheckCircle2 className="w-3 h-3 text-white" />
-                                  </div>
-                                )}
-                              </div>
-                              <span className="text-[10px] text-gray-400 font-medium">{opt.desc}</span>
-                            </button>
-                          );
-                        })}
+                              }
+                            });
+                          }
+                          return apiOptions.filter(opt => opt.group === employeeForm.type).map((opt) => {
+                            const isSelected = (employeeForm.apiConfigKeys || []).includes(opt.key as ApiConfigKey);
+                            return (
+                              <button
+                                key={opt.key}
+                                type="button"
+                                onClick={() => {
+                                  // Only allow selecting one
+                                  setEmployeeForm({
+                                    ...employeeForm,
+                                    apiConfigKeys: [opt.key as ApiConfigKey]
+                                  });
+                                }}
+                                className={`flex flex-col items-start p-4 rounded-2xl border-2 transition-all text-left ${
+                                  isSelected 
+                                    ? 'border-blue-600 bg-blue-50/50' 
+                                    : 'border-gray-100 bg-gray-50/30 hover:border-gray-200'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between w-full mb-1">
+                                  <span className={`font-bold text-sm ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
+                                    {opt.label}
+                                  </span>
+                                  {isSelected && (
+                                    <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
+                                      <CheckCircle2 className="w-3 h-3 text-white" />
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-gray-400 font-medium">{opt.desc}</span>
+                              </button>
+                            );
+                          });
+                        })()}
                       </div>
                       <p className="text-[11px] text-gray-400 px-4">
                         该“超级员工”在执行任务时将具备该接口的能力。

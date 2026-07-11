@@ -288,6 +288,7 @@ export interface HistoryItem {
   canvasId?: string;
   arkOriginalUrl?: string;
   revisedPrompt?: string;
+  prompt?: string;
   isOptimized?: boolean;
   error?: string;
   _navId?: string;

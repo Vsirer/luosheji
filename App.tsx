@@ -160,6 +160,9 @@ const App: React.FC = () => {
                  newConfig[moduleKey] = { ...newConfig[moduleKey], ...globalConfig[key] };
               }
             });
+            if (globalConfig.customInterfaces) {
+              newConfig.customInterfaces = { ...newConfig.customInterfaces, ...globalConfig.customInterfaces };
+            }
           }
           return newConfig;
         });
@@ -536,6 +539,9 @@ const App: React.FC = () => {
                    newConfig[moduleKey] = { ...newConfig[moduleKey], ...globalConfig[key] };
                 }
               });
+              if (globalConfig.customInterfaces) {
+                newConfig.customInterfaces = { ...newConfig.customInterfaces, ...globalConfig.customInterfaces };
+              }
               return newConfig;
             });
           }

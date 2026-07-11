@@ -14,8 +14,34 @@ import {
   PenTool,
   Film,
   Box,
-  Cpu
+  Cpu,
+  Upload,
+  Paperclip
 } from "lucide-react";
+import * as Icons from "lucide-react";
+
+const SkillIcon = ({ icon, className = "w-3.5 h-3.5" }: { icon: any; className?: string }) => {
+  if (!icon) return <Sparkles className={className} />;
+  
+  if (typeof icon === 'function' || (typeof icon === 'object' && icon.$$typeof)) {
+    const IconComponent = icon;
+    return <IconComponent className={className} />;
+  }
+  
+  if (typeof icon === 'string') {
+    const isEmoji = /\p{Emoji}/u.test(icon) || icon.length <= 2;
+    if (isEmoji) {
+      return <span className="inline-flex items-center justify-center text-xs leading-none select-none" style={{ width: '14px', height: '14px' }}>{icon}</span>;
+    }
+    
+    const LucideIcon = (Icons as any)[icon];
+    if (LucideIcon) {
+      return <LucideIcon className={className} />;
+    }
+  }
+  
+  return <Sparkles className={className} />;
+};
 import {
   SCRIPT_GENRES,
   RECOMMENDED_AUTHORS,
@@ -93,7 +119,7 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
       if (isRemoved) return false;
       return (s.category === "text" || s.category === "all" || s.category === "video") && s.id !== "general" && s.id !== "promptSkill" && s.id !== "prompt-skill";
     }).map((s: any) => {
-       let icon = Sparkles;
+       let icon = s.icon || Sparkles;
        let isDirector = false;
        let targetMode = s.id;
        if (s.id === "createScript" || s.id === "create-script") { icon = PenTool; targetMode = "create"; }
@@ -108,7 +134,11 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
          name: s.name,
          icon,
          isDirector,
-         customOptions: s.customOptions
+         customOptions: s.customOptions,
+         enableUpload: s.enableUpload,
+         uploadType: s.uploadType,
+         promptLabel: s.promptLabel,
+         promptPlaceholder: s.promptPlaceholder
        };
     }) || [];
     
@@ -120,12 +150,82 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
          name: promptSkill.name,
          icon: Sparkles,
          isDirector: true,
-         customOptions: promptSkill.customOptions || null
+         customOptions: promptSkill.customOptions || null,
+         enableUpload: promptSkill.enableUpload,
+         uploadType: promptSkill.uploadType,
+         promptLabel: promptSkill.promptLabel,
+         promptPlaceholder: promptSkill.promptPlaceholder
        });
     }
     
     return skills;
   }, [workflowSkills, removedSystemSkillIds]);
+
+  const activeId = scriptConfig.activeSubTab === "director" ? directorConfig?.generationMode : scriptConfig.activeSubTab;
+  const currentWs = availableTextSkills.find((s: any) => s.id === activeId);
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      files.forEach((file) => {
+        const reader = new FileReader();
+        const isText = file.type.startsWith("text/") || 
+                       file.name.endsWith(".txt") || 
+                       file.name.endsWith(".md") || 
+                       file.name.endsWith(".json");
+        
+        if (isText) {
+          const textReader = new FileReader();
+          textReader.onload = (textEvent) => {
+            const textContent = textEvent.target?.result as string;
+            reader.onload = (event) => {
+              const data = event.target?.result as string;
+              setScriptConfig((prev: any) => {
+                const currentFiles = prev.uploadedFiles || [];
+                return {
+                  ...prev,
+                  uploadedFiles: [
+                    ...currentFiles,
+                    {
+                      id: Math.random().toString(36).substring(2, 9),
+                      data,
+                      mimeType: file.type || "text/plain",
+                      name: file.name,
+                      textContent
+                    }
+                  ]
+                };
+              });
+            };
+            reader.readAsDataURL(file);
+          };
+          textReader.readAsText(file);
+        } else {
+          reader.onload = (event) => {
+            const data = event.target?.result as string;
+            setScriptConfig((prev: any) => {
+              const currentFiles = prev.uploadedFiles || [];
+              return {
+                ...prev,
+                uploadedFiles: [
+                  ...currentFiles,
+                  {
+                    id: Math.random().toString(36).substring(2, 9),
+                    data,
+                    mimeType: file.type,
+                    name: file.name
+                  }
+                ]
+              };
+            });
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
+  };
 
   React.useEffect(() => {
     if (availableTextSkills.length > 0) {
@@ -173,8 +273,10 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
       {/* Header Row: Agent Badge & Close button */}
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-1.5 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200/50 dark:border-amber-900/50 text-amber-600 dark:text-amber-400 font-bold text-[10px] px-2.5 py-1 rounded-full shadow-sm">
-          <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
-          <span>小逻: 灵境创生</span>
+          <span className="animate-pulse flex items-center justify-center">
+            <SkillIcon icon={currentWs?.icon} className="w-3 h-3 text-amber-500 shrink-0" />
+          </span>
+          <span>小逻: {currentWs ? currentWs.name : "灵境创生"}</span>
         </div>
 
         {onClose && (
@@ -187,10 +289,86 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
         )}
       </div>
 
+      {/* Upload Area for Custom Skills with Upload Enabled */}
+      {currentWs && currentWs.enableUpload && (
+        <div className="flex flex-col gap-1.5 w-full">
+          <div className="flex items-center justify-between">
+            <span className="text-zinc-400 dark:text-zinc-500 font-bold text-[11px] uppercase tracking-wider">
+              {currentWs.uploadType === 'image' ? "图片参考" : 
+               currentWs.uploadType === 'video' ? "视频参考" : 
+               currentWs.uploadType === 'text' ? "文本参考" : "素材参考"}
+            </span>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-2.5 mt-1">
+            {/* Upload trigger button */}
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-14 h-14 bg-zinc-50 dark:bg-zinc-850 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              <Upload className="w-5 h-5" />
+            </div>
+
+            {/* Uploaded File previews */}
+            {(scriptConfig.uploadedFiles || []).map((file: any, idx: number) => {
+              const isImage = file.mimeType?.startsWith("image/");
+              return (
+                <div 
+                  key={file.id || idx} 
+                  className="group relative w-14 h-14 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 rounded-2xl overflow-hidden shadow-sm flex items-center justify-center"
+                  title={file.name}
+                >
+                  {isImage ? (
+                    <img 
+                      src={file.data} 
+                      alt={file.name} 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-1 text-center">
+                      <Paperclip className="w-4 h-4 text-zinc-400" />
+                      <span className="text-[8px] text-zinc-500 dark:text-zinc-400 truncate max-w-full px-1">
+                        {file.name}
+                      </span>
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => {
+                      setScriptConfig((prev: any) => ({
+                        ...prev,
+                        uploadedFiles: (prev.uploadedFiles || []).filter((_: any, i: number) => i !== idx)
+                      }));
+                    }}
+                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
+                  >
+                    <X className="w-4 h-4 hover:scale-110 transition-transform" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          
+          <input 
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            multiple
+            accept={
+              currentWs.uploadType === 'image' ? "image/*" : 
+              currentWs.uploadType === 'video' ? "video/*" : 
+              currentWs.uploadType === 'text' ? ".txt,.md,.pdf,.doc,.docx,.json" : 
+              "image/*,video/*,audio/*,.txt,.md,.pdf,.doc,.docx,.json"
+            }
+            className="hidden"
+          />
+        </div>
+      )}
+
       {/* Prompt Area */}
       <div className="flex flex-col gap-1.5 w-full">
         <span className="text-zinc-400 dark:text-zinc-500 font-bold text-[11px] uppercase tracking-wider">
-          剧本大纲与主题
+          {currentWs?.promptLabel || "剧本大纲与主题"}
         </span>
 
         <div className="relative w-full">
@@ -204,9 +382,11 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
               }
             }}
             placeholder={
-              scriptConfig.creationType === "continue"
-                ? "请粘贴您已有的剧本内容，并写下续写剧本的要求或剧情反转..."
-                : "请输入剧本主题或故事大纲..."
+              currentWs?.promptPlaceholder || (
+                scriptConfig.creationType === "continue"
+                  ? "请粘贴您已有的剧本内容，并写下续写剧本的要求或剧情反转..."
+                  : "请输入剧本主题或故事大纲..."
+              )
             }
             className="w-full min-h-[96px] max-h-[160px] border border-zinc-200/90 dark:border-zinc-800/90 rounded-2xl p-4 text-[14px] leading-relaxed text-zinc-800 dark:text-zinc-100 placeholder-zinc-350 dark:placeholder-zinc-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 bg-zinc-50/50 dark:bg-zinc-950/20 resize-none transition-all"
           />
@@ -236,11 +416,7 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
               {(() => {
                  const activeId = scriptConfig.activeSubTab === "director" ? directorConfig?.generationMode : scriptConfig.activeSubTab;
                  const currentWs = availableTextSkills.find((s: any) => s.id === activeId);
-                 if (currentWs) {
-                   const Icon = currentWs.icon;
-                   return <Icon className="w-3 h-3 shrink-0" />;
-                 }
-                 return <Sparkles className="w-3 h-3 shrink-0" />;
+                 return <SkillIcon icon={currentWs?.icon} className="w-3 h-3 shrink-0" />;
               })()}
               <span className="shrink-0 truncate max-w-[120px]">
                 技能: {(() => {
@@ -294,7 +470,7 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
                             : "hover:bg-gray-50 dark:hover:bg-zinc-900 text-gray-500 dark:text-zinc-400"
                         }`}
                       >
-                        <opt.icon className="w-3.5 h-3.5" />
+                        <SkillIcon icon={opt.icon} className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">{opt.name}</span>
                       </button>
                     ))}
@@ -689,13 +865,27 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
             >
               <Cpu className="w-3.5 h-3.5 text-zinc-400 mr-1.5" />
               <span className="text-[11px] text-zinc-400 font-medium">
-                模型: {
-                  localTextModel === "gemini-3.5-flash" && (!config?.script?.model || config?.script?.model === "gemini-3.5-flash")
-                    ? (config?.script?.displayName || "Gemini 3.5 Flash")
-                    : localTextModel === "claude-sonnet-5" && (!config?.claudeSonnet?.model || config?.claudeSonnet?.model === "claude-sonnet-5")
-                      ? (config?.claudeSonnet?.displayName || "Claude-sonnet-5")
-                      : (customModels.find(m => m.model === localTextModel)?.name || (localTextModel === config?.script?.model && config?.script?.displayName ? config.script.displayName : (localTextModel === config?.claudeSonnet?.model && config?.claudeSonnet?.displayName ? config.claudeSonnet.displayName : localTextModel)))
-                }
+                模型: {(() => {
+                  if (config?.customInterfaces?.[localTextModel]) {
+                    return config.customInterfaces[localTextModel].displayName || config.customInterfaces[localTextModel].title || localTextModel;
+                  }
+                  if (localTextModel === "gemini-3.5-flash" || (localTextModel === config?.script?.model && (!config?.script?.model || localTextModel === "gemini-3.5-flash"))) {
+                    return config?.script?.displayName || "Gemini 3.5 Flash";
+                  }
+                  if (localTextModel === "claude-sonnet-5" || (localTextModel === config?.claudeSonnet?.model && (!config?.claudeSonnet?.model || localTextModel === "claude-sonnet-5"))) {
+                    return config?.claudeSonnet?.displayName || "Claude-sonnet-5";
+                  }
+                  const customM = customModels.find(m => (m.model || m.id) === localTextModel);
+                  if (customM) return customM.name || customM.model;
+                  
+                  if (localTextModel === config?.script?.model && config?.script?.displayName) {
+                    return config.script.displayName;
+                  }
+                  if (localTextModel === config?.claudeSonnet?.model && config?.claudeSonnet?.displayName) {
+                    return config.claudeSonnet.displayName;
+                  }
+                  return localTextModel;
+                })()}
               </span>
             </button>
             <AnimatePresence>
@@ -724,6 +914,20 @@ export const InlineScriptConsole: React.FC<InlineScriptConsoleProps> = ({
                           icon: Cpu,
                         }
                       ];
+                      
+                      if (config?.customInterfaces) {
+                        Object.entries(config.customInterfaces).forEach(([key, sec]) => {
+                          const section = sec as any;
+                          if (section && section.model && section.modelType === 'text') {
+                            baseTextModels.push({
+                              id: key,
+                              name: section.displayName || section.title || section.model,
+                              icon: Cpu,
+                            });
+                          }
+                        });
+                      }
+
                       const customTextModels = customModels
                         .filter((m: any) => m.type === "text" || m.type === "all" || !m.type)
                         .map((m: any, idx: number) => ({

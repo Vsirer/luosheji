@@ -21,4 +21,6 @@ export interface AiSkill {
   enableUpload?: boolean;
   uploadType?: 'all' | 'text' | 'image' | 'video';
   status?: 'pending' | 'approved' | 'rejected';
+  promptLabel?: string;
+  promptPlaceholder?: string;
 }

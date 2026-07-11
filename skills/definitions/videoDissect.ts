@@ -21,6 +21,8 @@ export const videoDissectSkill: AiSkill = {
   isSystem: true,
   isInstalled: true,
   isPublic: true,
+  promptLabel: "视频片段或描述",
+  promptPlaceholder: "请输入视频描述，或者上传参考视频/剧本，我们将为您输出精准的时间轴级拉片拆解结果...",
   customOptions: [
     {
       id: "dissectFormat",

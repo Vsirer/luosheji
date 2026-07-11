@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, 
   Check, 
@@ -121,6 +121,26 @@ root.render(<App />);`);
   const [editIcon, setEditIcon] = useState('');
   const [editCategory, setEditCategory] = useState<'text' | 'image' | 'video' | 'all'>('image');
 
+  const canModifyPlugin = (skill: AiSkill) => {
+    if (user?.role === 'admin') return true;
+    if (skill.isSystem) return false;
+    if (skill.creatorId && user?.id && String(skill.creatorId) === String(user?.id)) {
+      return true;
+    }
+    return false;
+  };
+
+  const canModifySelectedWorkshopPlugin = useMemo(() => {
+    if (workshopSelectedId === 'new') return true;
+    if (user?.role === 'admin') return true;
+    const userPlugins = JSON.parse(localStorage.getItem('user_plugins') || '[]');
+    const plugin = userPlugins.find((p: any) => p.id === workshopSelectedId);
+    if (plugin && plugin.creatorId && user?.id && String(plugin.creatorId) === String(user?.id)) {
+      return true;
+    }
+    return false;
+  }, [workshopSelectedId, user]);
+
   const fetchSkills = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -212,14 +232,35 @@ root.render(<App />);`);
   const handleSaveEdit = () => {
     if (!editingPlugin) return;
     try {
-      const editedPlugins = JSON.parse(localStorage.getItem('edited_system_plugins') || '{}');
-      editedPlugins[editingPlugin.id] = {
-        ...editedPlugins[editingPlugin.id],
-        name: editName,
-        desc: editDesc,
-        icon: editIcon,
-      };
-      localStorage.setItem('edited_system_plugins', JSON.stringify(editedPlugins));
+      if (editingPlugin.isSystem) {
+        const editedPlugins = JSON.parse(localStorage.getItem('edited_system_plugins') || '{}');
+        editedPlugins[editingPlugin.id] = {
+          ...editedPlugins[editingPlugin.id],
+          name: editName,
+          desc: editDesc,
+          icon: editIcon,
+        };
+        localStorage.setItem('edited_system_plugins', JSON.stringify(editedPlugins));
+      } else {
+        // Edit custom plugin in user_plugins
+        const userPluginsStr = localStorage.getItem('user_plugins');
+        if (userPluginsStr) {
+          const userPlugins = JSON.parse(userPluginsStr);
+          const updated = userPlugins.map((p: any) => {
+            if (p.id === editingPlugin.id) {
+              return {
+                ...p,
+                name: editName,
+                desc: editDesc,
+                icon: editIcon,
+                category: editCategory
+              };
+            }
+            return p;
+          });
+          localStorage.setItem('user_plugins', JSON.stringify(updated));
+        }
+      }
       localStorage.setItem(`plugin_category_${editingPlugin.id}`, editCategory);
       setEditingPlugin(null);
       window.dispatchEvent(new CustomEvent('skills-changed'));
@@ -402,12 +443,12 @@ root.render(<App />);`);
     }
 
     const userPlugins = JSON.parse(localStorage.getItem('user_plugins') || '[]');
-    const isNew = workshopSelectedId === 'new';
+    const isNew = workshopSelectedId === 'new' || !canModifySelectedWorkshopPlugin;
     const pluginId = isNew ? 'custom_' + Date.now().toString() : workshopSelectedId;
 
     const savedPayload = {
       id: pluginId,
-      name: saveFormName,
+      name: saveFormName + (isNew && workshopSelectedId !== 'new' ? ' (副本)' : ''),
       desc: saveFormDesc,
       icon: saveFormIcon,
       instruction: `[Generative UI Plugin: ${saveFormName}] Please use the following code as reference: ${workshopCode}`,
@@ -415,7 +456,9 @@ root.render(<App />);`);
       isSystem: false,
       isInstalled: true,
       category: saveFormCategory,
-      status: 'approved'
+      status: 'approved',
+      creatorId: isNew ? user?.id : (userPlugins.find((p: any) => p.id === pluginId)?.creatorId || user?.id),
+      creatorName: isNew ? (user?.username || '团队自制') : (userPlugins.find((p: any) => p.id === pluginId)?.creatorName || user?.username || '团队自制')
     };
 
     if (isNew) {
@@ -438,7 +481,11 @@ root.render(<App />);`);
     }
     
     window.dispatchEvent(new CustomEvent('skills-changed'));
-    alert('🎉 插件已成功保存并立即启用！');
+    if (isNew && workshopSelectedId !== 'new') {
+      alert('🎉 由于您对原插件无修改权限，已自动将您的修改另存为新插件！');
+    } else {
+      alert('🎉 插件已成功保存并立即启用！');
+    }
     if (closeModalAfter === true) {
       setShowSavePluginModal(false);
     }
@@ -460,34 +507,45 @@ root.render(<App />);`);
     <div className="flex flex-col h-full overflow-hidden bg-[#fcfcfd]">
       {/* Sub header for searching & actions */}
       <div className="bg-white border-b border-gray-100 px-8 py-4 flex flex-col md:flex-row md:items-center md:justify-between shrink-0 gap-4 shadow-2xs">
-        {/* Navigation Dropdown */}
-        <div className="relative flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200/60 shadow-2xs">
-          <label className="text-[11px] font-bold text-slate-500 px-2.5 select-none">板块导航:</label>
-          <select
-            value={activeTab}
-            onChange={(e) => setActiveTab(e.target.value as 'browse' | 'all' | 'workshop')}
-            className="text-xs font-bold text-slate-800 bg-white border border-slate-200/80 rounded-lg px-3 py-1.5 focus:border-indigo-500 outline-none cursor-pointer pr-8 select-none shadow-2xs"
-          >
-            <option value="browse">🧩 浏览器已装插件 ({installedPluginsCount})</option>
-            <option value="all">📦 全部插件 ({PLUGINS.length})</option>
-            <option value="workshop">✨ AI 插件工坊 (Beta)</option>
-          </select>
+        {/* Navigation Tabs */}
+        <div className="relative flex flex-wrap items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200/60 shadow-2xs">
+          <span className="text-[11px] font-bold text-slate-500 px-2.5 select-none shrink-0">板块导航:</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setActiveTab('browse')}
+              className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all select-none cursor-pointer ${
+                activeTab === 'browse'
+                  ? 'bg-white text-indigo-600 shadow-sm border border-slate-250'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60 border border-transparent'
+              }`}
+            >
+              🧩 浏览器已装插件 ({installedPluginsCount})
+            </button>
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all select-none cursor-pointer ${
+                activeTab === 'all'
+                  ? 'bg-white text-indigo-600 shadow-sm border border-slate-250'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60 border border-transparent'
+              }`}
+            >
+              📦 全部插件 ({PLUGINS.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('workshop')}
+              className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all select-none cursor-pointer ${
+                activeTab === 'workshop'
+                  ? 'bg-white text-indigo-600 shadow-sm border border-slate-250'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60 border border-transparent'
+              }`}
+            >
+              ✨ AI 插件工坊 (Beta)
+            </button>
+          </div>
         </div>
 
         {activeTab !== 'workshop' ? (
           <div className="flex items-center justify-between md:justify-end gap-3 flex-1">
-            <div>
-              {user?.role === 'admin' && hasLocalOverrides() && (
-                <button
-                  onClick={handleResetAllPlugins}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100/80 border border-amber-200/60 rounded-xl transition-colors cursor-pointer"
-                  title="恢复所有被删除或修改的官方默认插件"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span className="font-semibold">重置插件配置</span>
-                </button>
-              )}
-            </div>
             <div className="relative flex items-center w-full sm:w-64 md:w-72 group">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 transition-colors group-focus-within:text-indigo-500 pointer-events-none" />
               <input
@@ -498,6 +556,17 @@ root.render(<App />);`);
                 className="w-full text-xs pl-9 pr-3.5 py-2.5 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/40 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 focus:outline-none rounded-xl transition-all shadow-2xs"
               />
             </div>
+            <button
+              onClick={() => {
+                setActiveTab('workshop');
+                handleWorkshopLoadPlugin('new');
+              }}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer shrink-0 shadow-sm"
+              title="前往 AI 插件工坊新建插件"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>制作新插件</span>
+            </button>
           </div>
         ) : (
           <div className="flex items-center space-x-3 flex-1 justify-end">
@@ -551,20 +620,18 @@ root.render(<App />);`);
                       </p>
                     </div>
 
-                    {(user?.role === 'admin' || !skill.isSystem) && (
+                    {canModifyPlugin(skill) && (
                       <div className="flex items-center space-x-1 shrink-0">
-                        {skill.isSystem && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartEdit(skill);
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-                            title="编辑插件"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartEdit(skill);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                          title="编辑插件属性"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -619,7 +686,20 @@ root.render(<App />);`);
                     )}
                   </span>
 
-                  <div className="flex items-center space-x-1.5">
+                   <div className="flex items-center space-x-1.5">
+                    {!skill.isSystem && (
+                      <button
+                        onClick={() => {
+                          setActiveTab('workshop');
+                          handleWorkshopLoadPlugin(skill.id);
+                        }}
+                        className="px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 rounded-xl transition-all flex items-center space-x-1 cursor-pointer active:scale-95"
+                        title={canModifyPlugin(skill) ? "进入代码工坊编辑此自建插件" : "查看此自建插件源码"}
+                      >
+                        <Code className="w-3.5 h-3.5 text-slate-500" />
+                        <span>{canModifyPlugin(skill) ? '编辑代码' : '查看代码'}</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         handleSelectSkill(skill.id);
@@ -665,6 +745,15 @@ root.render(<App />);`);
               </p>
             </div>
 
+            {!canModifySelectedWorkshopPlugin && (
+              <div className="p-3 bg-amber-50 text-amber-800 text-[11px] rounded-xl border border-amber-100 flex items-start space-x-1.5">
+                <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                <span className="leading-relaxed">
+                  🔒 <strong>只读预览模式</strong>：此插件由其他成员创建。您当前仅可预览及运行，无权通过AI提词修改或直接保存覆盖。
+                </span>
+              </div>
+            )}
+
             {/* Prompt Input & Presets */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
@@ -678,10 +767,14 @@ root.render(<App />);`);
               <textarea
                 value={workshopPrompt}
                 onChange={(e) => setWorkshopPrompt(e.target.value)}
-                placeholder="例如：制作一个水晶质感的倒计时时钟，支持番茄钟，秒表..."
+                placeholder={
+                  !canModifySelectedWorkshopPlugin
+                    ? "🔒 只读模式下无法使用提词修改他人插件"
+                    : "例如：制作一个水晶质感的倒计时时钟，支持番茄钟，秒表..."
+                }
                 rows={4}
-                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-none leading-relaxed"
-                disabled={isGenerating}
+                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-none leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isGenerating || !canModifySelectedWorkshopPlugin}
               />
               
               {/* Quick Launch Presets */}
@@ -692,13 +785,18 @@ root.render(<App />);`);
                     { label: '⏱️ 番茄倒计时', prompt: '制作一个高级玻璃拟态数字时钟，包含时分秒、毫秒秒表 and 25分钟番茄钟计时器。配色高级，自带微动效。' },
                     { label: '🎨 精美色卡生成', prompt: '制作一个配色卡生成器，随机生成5种相近色卡，点击一键复制Hex，同时使用Recharts显示色彩饱和雷达图。' },
                     { label: '✏️ 白板涂鸦本', prompt: '制作一个画布涂鸦画板。支持鼠标拖动或触控绘画，提供5个高级预设颜色，可以调粗细，支持清空和撤销。' },
-                    { label: '📊 销售大盘看板', prompt: '使用Recharts制作一个精美的公司业务销售看板。包含趋势折线图和产品销量占比饼图。内置随机波动刷新。' }
+                    { label: '📊 销售大盘看板', prompt: '使用Recharts制作一个精美的公司业务销售看板。包含趋势折线图 and 产品销量占比饼图。内置随机波动刷新。' }
                   ].map((preset, idx) => (
                     <button
                       key={idx}
                       type="button"
+                      disabled={!canModifySelectedWorkshopPlugin}
                       onClick={() => setWorkshopPrompt(preset.prompt)}
-                      className="text-[9px] font-semibold px-2 py-1 bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200/60 rounded-lg transition-all cursor-pointer"
+                      className={`text-[9px] font-semibold px-2 py-1 border border-slate-200/60 rounded-lg transition-all ${
+                        !canModifySelectedWorkshopPlugin
+                          ? 'bg-slate-50 text-slate-400 cursor-not-allowed border-slate-100'
+                          : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer'
+                      }`}
                     >
                       {preset.label}
                     </button>
@@ -716,7 +814,8 @@ root.render(<App />);`);
                   <select
                     value={selectedModelSlot}
                     onChange={(e) => setSelectedModelSlot(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white cursor-pointer font-bold text-slate-700 appearance-none shadow-xs"
+                    disabled={!canModifySelectedWorkshopPlugin}
+                    className="w-full text-xs px-3.5 py-2.5 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white cursor-pointer font-bold text-slate-700 appearance-none shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="script">主力通用模型 (Gemini / 推荐)</option>
                     <option value="claudeSonnet">高阶推理大模型 (Claude Sonnet)</option>
@@ -744,7 +843,7 @@ root.render(<App />);`);
 
               <button
                 onClick={handleWorkshopGenerate}
-                disabled={isGenerating || !workshopPrompt.trim()}
+                disabled={isGenerating || !workshopPrompt.trim() || !canModifySelectedWorkshopPlugin}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
               >
                 {isGenerating ? (
@@ -773,15 +872,25 @@ root.render(<App />);`);
                     <span>PLUGIN_SOURCE_CODE.tsx</span>
                   </span>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[9px] font-mono text-emerald-500 bg-emerald-950 px-2 py-0.5 border border-emerald-900/60 rounded-md">
-                      EDITABLE
-                    </span>
+                    {!canModifySelectedWorkshopPlugin ? (
+                      <span className="text-[9px] font-mono text-amber-500 bg-amber-950 px-2 py-0.5 border border-amber-900/60 rounded-md flex items-center space-x-1">
+                        <Lock className="w-3 h-3 mr-0.5 text-amber-500" />
+                        <span>只读模式</span>
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-emerald-500 bg-emerald-950 px-2 py-0.5 border border-emerald-900/60 rounded-md">
+                        EDITABLE
+                      </span>
+                    )}
                   </div>
                 </div>
                 <textarea
                   value={workshopCode}
                   onChange={(e) => setWorkshopCode(e.target.value)}
-                  className="flex-1 w-full p-4 font-mono text-[11px] leading-relaxed text-slate-350 bg-slate-950 border-none outline-none resize-none focus:ring-0 overflow-y-auto selection:bg-slate-800 selection:text-white"
+                  readOnly={!canModifySelectedWorkshopPlugin}
+                  className={`flex-1 w-full p-4 font-mono text-[11px] leading-relaxed text-slate-350 bg-slate-950 border-none outline-none resize-none focus:ring-0 overflow-y-auto selection:bg-slate-800 selection:text-white ${
+                    !canModifySelectedWorkshopPlugin ? 'cursor-not-allowed opacity-80' : ''
+                  }`}
                   style={{ color: '#cbd5e1' }}
                 />
               </div>
@@ -797,10 +906,10 @@ root.render(<App />);`);
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setShowSavePluginModal(true)}
-                    className="px-2.5 py-1 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-750 hover:shadow-xs active:scale-[0.98] rounded-lg border-0 transition-all flex items-center space-x-1 cursor-pointer"
+                    className="px-2.5 py-1 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 hover:shadow-xs active:scale-[0.98] rounded-lg border-0 transition-all flex items-center space-x-1 cursor-pointer"
                   >
                     <Save className="w-3 h-3" />
-                    <span>另存为插件</span>
+                    <span>{!canModifySelectedWorkshopPlugin ? '克隆为新插件' : '保存插件'}</span>
                   </button>
                   <button
                     onClick={() => setShowCodeEditor(!showCodeEditor)}

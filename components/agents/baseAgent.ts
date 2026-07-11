@@ -387,7 +387,10 @@ export class BaseAgent {
     if (type === 'script' && (modelStr === 'claude-sonnet-5' || modelStr.includes('claude'))) {
       resolvedType = 'claudeSonnet';
     }
-    const apiConfigRaw = config ? config[resolvedType] : null;
+    let apiConfigRaw = config ? config[resolvedType] : null;
+    if (!apiConfigRaw && config?.customInterfaces?.[resolvedType]) {
+      apiConfigRaw = config.customInterfaces[resolvedType];
+    }
     if (!apiConfigRaw) throw new Error(`未找到 ${resolvedType} 的配置信息`);
     
     const apiConfig = { ...apiConfigRaw };

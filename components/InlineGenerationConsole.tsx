@@ -586,6 +586,18 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
           }
         }
       });
+
+      // Add custom interfaces of type 'image'
+      if (config.customInterfaces) {
+        Object.entries(config.customInterfaces).forEach(([key, section]) => {
+          if (section && section.model && section.modelType === 'image') {
+            dynamicImageModels.push({
+              label: section.displayName || section.title || section.model,
+              value: key // Use key as unique identifier
+            });
+          }
+        });
+      }
     } else {
       dynamicImageModels.push(
         { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
@@ -620,6 +632,18 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
           });
         }
       });
+
+      // Add custom interfaces of type 'video'
+      if (config.customInterfaces) {
+        Object.entries(config.customInterfaces).forEach(([key, section]) => {
+          if (section && section.model && section.modelType === 'video') {
+            dynamicVideoModels.push({
+              label: section.displayName || section.title || section.model,
+              value: key // Use key as unique identifier
+            });
+          }
+        });
+      }
     } else {
       dynamicVideoModels.push(
         { label: "RH-SD2.0", value: "seedance2.0" },
@@ -1133,6 +1157,18 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
                             }
                           }
                         });
+
+                        // Add custom interfaces of type 'image'
+                        if (config.customInterfaces) {
+                          Object.entries(config.customInterfaces).forEach(([key, section]) => {
+                            if (section && section.model && section.modelType === 'image') {
+                              dynamicImageModels.push({
+                                label: section.displayName || section.title || section.model,
+                                value: key // Use key as unique identifier
+                              });
+                            }
+                          });
+                        }
                       } else {
                         dynamicImageModels.push(
                           { label: "nano banana 2", value: "gemini-3.1-flash-image-preview" },
@@ -1167,6 +1203,18 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
                             });
                           }
                         });
+
+                        // Add custom interfaces of type 'video'
+                        if (config.customInterfaces) {
+                          Object.entries(config.customInterfaces).forEach(([key, section]) => {
+                            if (section && section.model && section.modelType === 'video') {
+                              dynamicVideoModels.push({
+                                label: section.displayName || section.title || section.model,
+                                value: key // Use key as unique identifier
+                              });
+                            }
+                          });
+                        }
                       } else {
                         dynamicVideoModels.push(
                           { label: "RH-SD2.0", value: "seedance2.0" },
@@ -1200,8 +1248,75 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
                           onClick={() => {
                             if (isImage) {
                               setImageConfig((prev: any) => ({ ...prev, model: m.value }));
+                              if (config) {
+                                const customInterface = config.customInterfaces?.[m.value] || Object.values(config.customInterfaces || {}).find((ci: any) => ci.model === m.value);
+                                if (customInterface) {
+                                  config.image = {
+                                    ...config.image,
+                                    model: customInterface.model,
+                                    endpoint: customInterface.endpoint,
+                                    apiKey: customInterface.apiKey || '',
+                                    provider: customInterface.provider || 'Third Party',
+                                    path: customInterface.path || '',
+                                    protocolType: customInterface.protocolType || 'openai',
+                                    displayName: customInterface.displayName || customInterface.title || m.value,
+                                  };
+                                } else {
+                                  const customM = customModels.find((cm: any) => (cm.model || cm.id || cm.name) === m.value);
+                                  if (customM) {
+                                    config.image = {
+                                      ...config.image,
+                                      model: m.value,
+                                      endpoint: customM.endpoint || '',
+                                      apiKey: customM.apiKey || '',
+                                      provider: customM.provider || 'Third Party',
+                                      path: customM.path || '',
+                                      protocolType: 'openai',
+                                      displayName: customM.name || m.value,
+                                    };
+                                  } else {
+                                    config.image = {
+                                      ...config.image,
+                                      model: m.value,
+                                    };
+                                  }
+                                }
+                              }
                             } else {
                               setVideoConfig((prev: any) => ({ ...prev, model: m.value }));
+                              if (config) {
+                                const customInterface = config.customInterfaces?.[m.value] || Object.values(config.customInterfaces || {}).find((ci: any) => ci.model === m.value);
+                                if (customInterface) {
+                                  config.video = {
+                                    ...config.video,
+                                    model: customInterface.model,
+                                    endpoint: customInterface.endpoint,
+                                    apiKey: customInterface.apiKey || '',
+                                    provider: customInterface.provider || 'Third Party',
+                                    path: customInterface.path || '',
+                                    protocolType: customInterface.protocolType || 'openai',
+                                    displayName: customInterface.displayName || customInterface.title || m.value,
+                                  };
+                                } else {
+                                  const customM = customModels.find((cm: any) => (cm.model || cm.id || cm.name) === m.value);
+                                  if (customM) {
+                                    config.video = {
+                                      ...config.video,
+                                      model: m.value,
+                                      endpoint: customM.endpoint || '',
+                                      apiKey: customM.apiKey || '',
+                                      provider: customM.provider || 'Third Party',
+                                      path: customM.path || '',
+                                      displayName: customM.name || m.value,
+                                    };
+                                  } else {
+                                    config.video = {
+                                      ...config.video,
+                                      model: m.value,
+                                    };
+                                  }
+                                }
+                              }
                             }
                             setShowModelMenu(false);
                           }}
