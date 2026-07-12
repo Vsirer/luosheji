@@ -1,8 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
-import { Config, ApiConfigKey } from "../../types";
-import { logUsage } from "../../services/utils";
-import { safeJson } from "../../lib/fetch";
-import { toBase64 } from "../../lib/utils";
+import type { Config, ApiConfigKey } from "../../types.ts";
+import { logUsage } from "../../services/utils.ts";
+import { safeJson } from "../../lib/fetch.ts";
+import { toBase64 } from "../../lib/utils.ts";
 
 export class BaseAgent {
   protected extractJson(text: string, defaultValue: any = null): any {

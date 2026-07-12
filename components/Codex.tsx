@@ -172,7 +172,7 @@ import { AI_SKILLS, AiSkill } from '../skills';
 import { PLUGINS } from '../plugin';
 import { SkillsModal } from './SkillsModal';
 
-const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDownload, handleView, onQuote, onRecall, onImageClick, onJump, isSameSenderAsNext, isSameSenderAsPrev, setMessages, runPipelineSteps, editingStep, setEditingStep, onRetryStep, setHistory, setTuningPipelineMsgId, onConvertToPipeline, onSendQuickPrompt }: { 
+const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDownload, handleView, onQuote, onRecall, onImageClick, onJump, isSameSenderAsNext, isSameSenderAsPrev, setMessages, runPipelineSteps, editingStep, setEditingStep, onRetryStep, setHistory, setTuningPipelineMsgId, onConvertToPipeline, onSendQuickPrompt, chatTargetId, aiSkill }: { 
   msg: Message, 
   currentUserId?: string | number,
   currentUserName?: string,
@@ -192,8 +192,16 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
   setHistory?: React.Dispatch<React.SetStateAction<any[]>>,
   setTuningPipelineMsgId?: React.Dispatch<React.SetStateAction<any>>,
   onConvertToPipeline?: (msg: Message) => void,
-  onSendQuickPrompt?: (prompt: string) => void
+  onSendQuickPrompt?: (prompt: string) => void,
+  chatTargetId?: string,
+  aiSkill?: string
 }) => {
+  const isImageMode = chatTargetId === 'image' || msg.id?.startsWith('image_') || msg.agentName === "灵境生图";
+  const isVideoMode = chatTargetId === 'video' || msg.id?.startsWith('video_') || msg.agentName === "灵境视频";
+  const isScriptMode = (chatTargetId?.endsWith('_ai') && aiSkill !== 'general') || msg.id?.startsWith('script_') || msg.agentName === "灵境创生";
+  const defaultAgentName = isImageMode ? "灵境生图" : isVideoMode ? "灵境视频" : isScriptMode ? "灵境创生" : "小逻";
+  const defaultAgentIcon = isImageMode ? "🎨" : isVideoMode ? "🎬" : isScriptMode ? "✍️" : "🤖";
+
   const isUser = msg.role === 'user' || (msg.senderId !== undefined && currentUserId !== undefined && String(msg.senderId) === String(currentUserId));
   const isAttachment = ['image', 'video', 'audio', 'file'].includes(msg.type || '');
   const isGuest = currentUserId === 'guest' || localStorage.getItem('isGuest') === 'true';
@@ -259,7 +267,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
                     <User className="w-6 h-6" />
                   </div>
                 ) : (
-                  <span className="text-lg">{msg.agentIcon || (msg.agentName?.includes('视频') ? '🎬' : '🤖')}</span>
+                  <span className="text-lg">{msg.agentIcon || (msg.agentName?.includes('视频') ? '🎬' : defaultAgentIcon)}</span>
                 )}
               </div>
             )}
@@ -270,7 +278,7 @@ const MessageItem = React.memo(({ msg, currentUserId, currentUserName, handleDow
           {/* Name label - Always show if not consecutive */}
           {!isSameSenderAsPrev && (
             <span className={`text-[11px] text-gray-500 mb-1 px-1 font-bold tracking-tight`}>
-              {isUser ? (currentUserName || '我') : (msg.agentName || '小逻')}
+              {isUser ? (currentUserName || '我') : (msg.agentName || defaultAgentName)}
             </span>
           )}
 
@@ -1534,9 +1542,6 @@ export const Codex: React.FC<CodexProps> = ({
       window.removeEventListener('open-skills-modal', handleOpenSkills);
     };
   }, []);
-  const [activeAgentIds, setActiveAgentIds] = useState<string[]>(() => {
-    return ['ceo'];
-  }); 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null); 
   const [selectedMedia, setSelectedMedia] = useState<Message | null>(null);
 
@@ -2792,16 +2797,6 @@ export const Codex: React.FC<CodexProps> = ({
       }
     }
   };
-
-  const toggleAgentInGroup = (id: string) => {
-    if (id === 'ceo') return; // CEO 始终全勤
-    setActiveAgentIds(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(a => a !== id);
-      }
-      return [...prev, id];
-    });
-  };
   
   const [employees, setEmployees] = useState<Employee[]>(() => {
     try {
@@ -2948,14 +2943,6 @@ export const Codex: React.FC<CodexProps> = ({
     }
   }, [activeSubTab, storageKey]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${storageKey}_activeAgentIds`, JSON.stringify(activeAgentIds));
-    } catch (e) {
-      console.error('LocalStorage write error for activeAgentIds:', e);
-    }
-  }, [activeAgentIds, storageKey]);
-
   const clearChatHistory = () => {
     setShowClearConfirm(true);
   };
@@ -3065,6 +3052,18 @@ export const Codex: React.FC<CodexProps> = ({
       icon: emp.icon,
       apiConfigKeys: emp.apiConfigKeys && emp.apiConfigKeys.length > 0 ? emp.apiConfigKeys : (emp.apiConfigKey ? [emp.apiConfigKey as ApiConfigKey] : ['script']),
       type: emp.type || 'text'
+    });
+    setShowEmployeeModal(true);
+  };
+
+  const openAddEmployee = () => {
+    setEditingEmployeeId(null);
+    setEmployeeForm({
+      name: '',
+      desc: '',
+      icon: AVATARS[Math.floor(Math.random() * AVATARS.length)],
+      apiConfigKeys: ['script'],
+      type: 'text'
     });
     setShowEmployeeModal(true);
   };
@@ -4255,13 +4254,13 @@ ${sourceMsg.content}`;
 
     const selStart = e.target.selectionStart;
     const textBeforeCursor = text.slice(0, selStart);
-    const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+    const lastSlashIndex = textBeforeCursor.lastIndexOf('/');
 
-    if (lastHashIndex !== -1) {
-      const afterHash = textBeforeCursor.slice(lastHashIndex + 1);
-      if (!afterHash.includes(' ') && !afterHash.includes('\n')) {
+    if (lastSlashIndex !== -1) {
+      const afterTrigger = textBeforeCursor.slice(lastSlashIndex + 1);
+      if (!afterTrigger.includes(' ') && !afterTrigger.includes('\n')) {
         setShowSkillDropdown(true);
-        setSkillSearchQuery(afterHash);
+        setSkillSearchQuery(afterTrigger);
         setSkillDropdownIndex(0);
         return;
       }
@@ -4273,13 +4272,13 @@ ${sourceMsg.content}`;
     const text = currentInputValue;
     const selStart = textareaRef.current ? textareaRef.current.selectionStart : text.length;
     const textBeforeCursor = text.slice(0, selStart);
-    const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+    const lastSlashIndex = textBeforeCursor.lastIndexOf('/');
 
-    if (lastHashIndex !== -1) {
-      const prefix = text.slice(0, lastHashIndex);
+    if (lastSlashIndex !== -1) {
+      const prefix = text.slice(0, lastSlashIndex);
       const suffix = text.slice(selStart);
       const cleanSkillName = skill.name.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim(); // strip emojis
-      const inserted = `#${cleanSkillName} `;
+      const inserted = `/${cleanSkillName} `;
       const newValue = prefix + inserted + suffix;
       handleInputValueChange(newValue);
       setShowSkillDropdown(false);
@@ -4288,7 +4287,7 @@ ${sourceMsg.content}`;
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.focus();
-          const newCursorPos = lastHashIndex + inserted.length;
+          const newCursorPos = lastSlashIndex + inserted.length;
           textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
         }
       }, 50);
@@ -4503,8 +4502,11 @@ ${sourceMsg.content}`;
     setActiveQuote(null);
 
     const target = employees.find(e => e.id === chatTargetId);
-    const agentName = target?.name || (chatTargetId.endsWith('_ai') ? '小逻' : '统筹助手');
-    const agentIcon = target?.icon || (chatTargetId.endsWith('_ai') ? '🤖' : '✨');
+    const isImageMode = chatTargetId === 'image';
+    const isVideoMode = chatTargetId === 'video';
+    const isScriptMode = chatTargetId.endsWith('_ai') && aiSkill !== 'general';
+    const agentName = isImageMode ? "灵境生图" : isVideoMode ? "灵境视频" : isScriptMode ? "灵境创生" : (target?.name || (chatTargetId.endsWith('_ai') ? '小逻' : '统筹助手'));
+    const agentIcon = isImageMode ? "🎨" : isVideoMode ? "🎬" : isScriptMode ? "✍️" : (target?.icon || (chatTargetId.endsWith('_ai') ? '🤖' : '✨'));
 
     // 1. 立即插入聊天消息列表（用户自己输入的纯文本内容，如果有）
     if (currentInputRaw.trim() || analyzerFiles.length === 0) {
@@ -5213,6 +5215,8 @@ ${sourceMsg.content}`;
                       setTuningPipelineMsgId={setTuningPipelineMsgId}
                       onConvertToPipeline={aiSkill === 'general' ? handleConvertTextToPipeline : undefined}
                       onSendQuickPrompt={(prompt) => handleSend(prompt)}
+                      chatTargetId={chatTargetId}
+                      aiSkill={aiSkill}
                     />
                   </React.Fragment>
                 );
@@ -5225,31 +5229,38 @@ ${sourceMsg.content}`;
                   className="flex flex-col items-start w-full transition-all duration-300 mb-2 px-1"
                 >
                   <div className="flex items-start max-w-[85%] flex-row gap-3 relative">
-                    {/* Avatar */}
-                    <div className="flex-none mt-1">
-                      <div className="w-10 h-10 rounded-lg overflow-hidden shadow-sm flex items-center justify-center border border-gray-100 bg-white">
-                        <span className="text-lg">
-                          {currentAgent?.icon || (chatTargetId.endsWith('_ai') ? '🤖' : '✨')}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-start max-w-full">
-                      <span className="text-[11px] text-gray-500 mb-1 px-1 font-bold tracking-tight">
-                        {currentAgent?.name || (chatTargetId.endsWith('_ai') ? '小逻' : '统筹助手')}
-                      </span>
-
-                      <div className="group relative px-4 py-2.5 rounded-xl shadow-sm bg-white border border-gray-200/60 text-gray-900 after:content-[''] after:absolute after:top-3 after:-left-1.5 after:w-3 after:h-3 after:bg-white after:border-l after:border-b after:border-gray-200/60 after:rotate-45 after:rounded-sm">
-                        <div className="relative min-w-[35px] flex items-center space-x-2">
-                          <span className="text-[14px] text-gray-500 font-medium">正在思考</span>
-                          <span className="flex space-x-1 items-center pt-1">
-                            <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                            <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                            <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                    {/* Avatar & Name */}
+                    {(() => {
+                      const isImageMode = chatTargetId === 'image';
+                      const isVideoMode = chatTargetId === 'video';
+                      const isScriptMode = chatTargetId.endsWith('_ai') && aiSkill !== 'general';
+                      const activeIcon = isImageMode ? "🎨" : isVideoMode ? "🎬" : isScriptMode ? "✍️" : (currentAgent?.icon || (chatTargetId.endsWith('_ai') ? '🤖' : '✨'));
+                      const activeName = isImageMode ? "灵境生图" : isVideoMode ? "灵境视频" : isScriptMode ? "灵境创生" : (currentAgent?.name || (chatTargetId.endsWith('_ai') ? '小逻' : '统筹助手'));
+                      return (
+                        <>
+                          <div className="flex-none mt-1">
+                            <div className="w-10 h-10 rounded-lg overflow-hidden shadow-sm flex items-center justify-center border border-gray-100 bg-white">
+                              <span className="text-lg">{activeIcon}</span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-start max-w-full">
+                            <span className="text-[11px] text-gray-500 mb-1 px-1 font-bold tracking-tight">
+                              {activeName}
+                            </span>
+                            <div className="group relative px-4 py-2.5 rounded-xl shadow-sm bg-white border border-gray-200/60 text-gray-900 after:content-[''] after:absolute after:top-3 after:-left-1.5 after:w-3 after:h-3 after:bg-white after:border-l after:border-b after:border-gray-200/60 after:rotate-45 after:rounded-sm">
+                              <div className="relative min-w-[35px] flex items-center space-x-2">
+                                <span className="text-[14px] text-gray-500 font-medium">正在思考</span>
+                                <span className="flex space-x-1 items-center pt-1">
+                                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                  <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </motion.div>
               )}
@@ -5598,6 +5609,128 @@ ${sourceMsg.content}`;
                       onClick={() => setShowDeleteConfirm({ show: true, type: 'group', id: String(group.id) })}
                       className="flex items-center space-x-1 px-3 py-1.5 bg-rose-50/80 hover:bg-rose-100 text-rose-600 hover:text-rose-700 rounded-xl transition-all font-black text-[10px] border border-rose-100/20"
                       title="删除群聊"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* 分割线 */}
+        <hr className="border-slate-100/80 my-8" />
+
+        {/* 自定义智能体管理标题 */}
+        <div className="flex items-center justify-between mb-4 mt-2">
+          <div>
+            <h3 className="text-xs font-black text-slate-800 uppercase tracking-[0.16em] leading-none mb-1.5">
+              自定义智能体管理
+            </h3>
+            <p className="text-[10px] text-slate-400 font-semibold tracking-wide">
+              创建和管理具备专门功能设定、Prompt 提示词与专用接口能力的 AI 智能体
+            </p>
+          </div>
+          <div className="flex items-center">
+            <button 
+              onClick={openAddEmployee}
+              className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-[11px] font-black tracking-wide shadow-md shadow-emerald-100/55 transition-all duration-200"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>新建智能体</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 智能体卡片网格 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {employees.length === 0 ? (
+            <div className="col-span-full py-16 px-4 text-center border-2 border-dashed border-slate-100 rounded-3xl bg-slate-50/20">
+              <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-3.5 text-emerald-400 border border-emerald-100/50">
+                <Bot className="w-5 h-5" />
+              </div>
+              <h4 className="text-slate-800 text-xs font-black tracking-widest uppercase mb-1">暂无自定义智能体</h4>
+              <p className="text-[11px] text-slate-400 mb-4 max-w-xs mx-auto leading-relaxed">
+                您还没有创建任何自定义智能体。点击上方“新建智能体”，即可开始定制具备特定功能、提示词设定和模型接口的 AI 助手。
+              </p>
+            </div>
+          ) : (
+            employees.map((emp) => {
+              const handleEdit = (e: React.MouseEvent) => {
+                e.stopPropagation();
+                openEditEmployee(emp);
+              };
+
+              const handleDeleteClick = (e: React.MouseEvent) => {
+                e.stopPropagation();
+                setShowDeleteConfirm({ show: true, type: 'agent', id: String(emp.id) });
+              };
+
+              const apiLabel = emp.apiConfigKeys && emp.apiConfigKeys[0] 
+                ? (emp.apiConfigKeys[0] === 'script' ? '剧本生成' : emp.apiConfigKeys[0] === 'image' ? '生图接口' : emp.apiConfigKeys[0].startsWith('video') ? '视频生成' : emp.apiConfigKeys[0])
+                : (emp.type === 'image' ? '生图接口' : emp.type === 'video' ? '视频生成' : '剧本生成');
+
+              const typeText = emp.type === 'image' ? '图片生成' : emp.type === 'video' ? '视频生成' : '文本创意';
+
+              return (
+                <div 
+                  key={emp.id} 
+                  onClick={handleEdit}
+                  className="py-4 px-5 flex flex-col justify-between bg-white border border-slate-100/70 hover:border-emerald-100 hover:shadow-emerald-50/40 rounded-2xl transition-all duration-300 group cursor-pointer shadow-sm hover:shadow-md"
+                >
+                  <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-2xl shadow-inner border border-slate-100 group-hover:scale-105 transition-all">
+                      {emp.icon || '👤'}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <h4 className="text-sm font-bold text-slate-800 group-hover:text-emerald-600 transition-colors truncate">
+                            {emp.name}
+                          </h4>
+                          <span className={`px-2 py-0.5 text-[9px] rounded-full font-bold tracking-wider ${
+                            emp.type === 'image' ? 'bg-violet-50 text-violet-600 border border-violet-100/30' :
+                            emp.type === 'video' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100/30' :
+                            'bg-emerald-50 text-emerald-600 border border-emerald-100/30'
+                          }`}>
+                            {typeText}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                        {emp.desc || '暂无详细功能描述。'}
+                      </p>
+
+                      <div className="flex items-center space-x-2 pt-1">
+                        <span className="px-1.5 py-0.5 bg-slate-50 text-slate-500 border border-slate-100 text-[8px] rounded font-bold">
+                          接口: {apiLabel}
+                        </span>
+                        {emp.status && (
+                          <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100/10 text-[8px] rounded font-bold">
+                            状态: {emp.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-1.5 mt-4 pt-3 border-t border-slate-50" onClick={(e) => e.stopPropagation()}>
+                    <button 
+                      onClick={handleEdit}
+                      className="flex items-center space-x-1 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all font-black text-[10px] border border-slate-200/20"
+                      title="配置角色设定"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>配置</span>
+                    </button>
+                    <button 
+                      onClick={handleDeleteClick}
+                      className="flex items-center space-x-1 px-3 py-1.5 bg-rose-50/80 hover:bg-rose-100 text-rose-600 hover:text-rose-700 rounded-xl transition-all font-black text-[10px] border border-rose-100/20"
+                      title="删除智能体"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>删除</span>
@@ -5959,7 +6092,7 @@ ${sourceMsg.content}`;
                     </div>
 
                     <div className="space-y-4">
-                      <label className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">员工类型</label>
+                      <label className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">智能体类型</label>
                       <div className="relative">
                         <select
                           value={employeeForm.type}
@@ -6048,7 +6181,7 @@ ${sourceMsg.content}`;
                         })()}
                       </div>
                       <p className="text-[11px] text-gray-400 px-4">
-                        该“超级员工”在执行任务时将具备该接口的能力。
+                        该“智能体”在执行任务时将具备该接口的能力。
                       </p>
                     </div>
 
@@ -6057,7 +6190,7 @@ ${sourceMsg.content}`;
                         <label className="text-sm font-bold text-gray-500 uppercase tracking-wider px-1">功能描述</label>
                         <div className="relative">
                           <textarea 
-                            placeholder="输入超级员工的功能描述..."
+                            placeholder="输入自定义智能体的功能描述与 Prompt 设定词..."
                             className="w-full px-8 py-8 bg-gray-50/50 border border-gray-100 rounded-[32px] focus:bg-white focus:ring-4 focus:ring-blue-50 outline-none transition-all font-medium min-h-[300px] text-gray-700 leading-relaxed resize-none text-[16px]"
                             value={employeeForm.desc}
                             onChange={e => setEmployeeForm({...employeeForm, desc: e.target.value})}
@@ -6680,7 +6813,7 @@ ${sourceMsg.content}`;
                 <div className="absolute bottom-[100%] left-4 mb-2 z-50 w-80 bg-white border border-gray-100 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-2 max-h-64 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-150">
                   <div className="px-2.5 py-1 text-[10px] font-black tracking-wider text-gray-400 uppercase border-b border-gray-50 mb-1 flex items-center justify-between select-none">
                     <span>💡 智选 & 调用 SKILL</span>
-                    <span className="text-[9px] lowercase text-gray-300">#skill</span>
+                    <span className="text-[9px] lowercase text-gray-300">/ skill</span>
                   </div>
                   {filteredSkills.map((skill, idx) => {
                     const isSelected = idx === skillDropdownIndex;
@@ -6774,9 +6907,9 @@ ${sourceMsg.content}`;
                         const currentSkill = allSkills.find(s => s.id === aiSkill) || AI_SKILLS[0];
                         const hasIconEmoji = currentSkill.icon && currentSkill.name.startsWith(currentSkill.icon);
                         const displayName = hasIconEmoji ? currentSkill.name : (currentSkill.icon ? `${currentSkill.icon} ${currentSkill.name}` : currentSkill.name);
-                        return `[${displayName}] 向 小逻 提问、上传媒体进行深度分析...`;
+                        return `[${displayName}] 输入“/”即可使用技能，或向 小逻 提问、上传媒体进行深度分析...`;
                       })()
-                    : "在此输入消息或需求..."
+                    : "在此输入消息或需求，或输入“/”使用技能..."
                 }
                 className="w-full bg-transparent border-none focus:ring-0 resize-none min-h-[80px] max-h-[300px] px-4 py-3 text-[15px] placeholder:text-gray-300 font-sans"
               />

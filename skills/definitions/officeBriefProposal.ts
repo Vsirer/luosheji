@@ -1,4 +1,4 @@
-import { AiSkill } from "../types";
+import { AiSkill } from "../types.ts";
 
 export const officeBriefProposalSkill: AiSkill = {
   id: "office-brief-proposal",

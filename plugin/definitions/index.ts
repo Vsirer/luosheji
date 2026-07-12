@@ -1,8 +1,8 @@
-import { AiSkill } from "../../skills/types";
-import { perspectiveSimSkill } from "./perspectiveSim";
-import { pointAndShootSkill } from "./pointAndShoot";
-import { cameraControlSkill } from "./cameraControl";
-import { panoramaSkill } from "./panorama";
+import { AiSkill } from "../../skills/types.ts";
+import { perspectiveSimSkill } from "./perspectiveSim.ts";
+import { pointAndShootSkill } from "./pointAndShoot.ts";
+import { cameraControlSkill } from "./cameraControl.ts";
+import { panoramaSkill } from "./panorama.ts";
 
 // Assign categories for UI grouping and processing
 panoramaSkill.category = "image";

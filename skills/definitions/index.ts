@@ -1,18 +1,18 @@
-import { AiSkill } from "../types";
-import { createScriptSkill } from "./createScript";
-import { analyzeScriptSkill } from "./analyzeScript";
-import { rewriteScriptSkill } from "./rewriteScript";
-import { videoDissectSkill } from "./videoDissect";
-import { assetPromptSkill } from "./assetPromptSkill";
-import { shotPromptSkill } from "./shotPromptSkill";
-import { sixViewSkill } from "./sixView";
-import { scenePlanSkill } from "./scenePlan";
-import { gridStoryboardSkill } from "./gridStoryboard";
-import { officePitchDeckSkill } from "./officePitchDeck";
-import { officeAdScriptSkill } from "./officeAdScript";
-import { officeBriefProposalSkill } from "./officeBriefProposal";
-import { dnaSkill } from "./dnaSkill";
-import { assetLibrarySkill } from "./assetLibrarySkill";
+import { AiSkill } from "../types.ts";
+import { createScriptSkill } from "./createScript.ts";
+import { analyzeScriptSkill } from "./analyzeScript.ts";
+import { rewriteScriptSkill } from "./rewriteScript.ts";
+import { videoDissectSkill } from "./videoDissect.ts";
+import { assetPromptSkill } from "./assetPromptSkill.ts";
+import { shotPromptSkill } from "./shotPromptSkill.ts";
+import { sixViewSkill } from "./sixView.ts";
+import { scenePlanSkill } from "./scenePlan.ts";
+import { gridStoryboardSkill } from "./gridStoryboard.ts";
+import { officePitchDeckSkill } from "./officePitchDeck.ts";
+import { officeAdScriptSkill } from "./officeAdScript.ts";
+import { officeBriefProposalSkill } from "./officeBriefProposal.ts";
+import { dnaSkill } from "./dnaSkill.ts";
+import { assetLibrarySkill } from "./assetLibrarySkill.ts";
 
 // Assign categories for UI grouping and processing
 createScriptSkill.category = "text";

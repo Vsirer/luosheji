@@ -1,8 +1,8 @@
-import { imageAgent, IMAGE_AGENT_SYSTEM_INSTRUCTION } from "../components/agents/imageAgent";
-import { videoAgent } from "../components/agents/videoAgent";
-import { directorAgent } from "../components/agents/directorAgent";
-import { assetService } from "./assetService";
-import { PipelineData, Asset, Segment, Config, ScriptAnalysis, SmartImageConfig, SmartImageResult } from "../types";
+import { imageAgent, IMAGE_AGENT_SYSTEM_INSTRUCTION } from "../components/agents/imageAgent.ts";
+import { videoAgent } from "../components/agents/videoAgent.ts";
+import { directorAgent } from "../components/agents/directorAgent.ts";
+import { assetService } from "./assetService.ts";
+import { PipelineData, Asset, Segment, Config, ScriptAnalysis, SmartImageConfig, SmartImageResult } from "../types.ts";
 
 export { 
   IMAGE_AGENT_SYSTEM_INSTRUCTION, 

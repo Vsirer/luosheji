@@ -1,4 +1,4 @@
-import { AiSkill } from "../types";
+import { AiSkill } from "../types.ts";
 
 export const createScriptSkill: AiSkill = {
   id: "create-script",

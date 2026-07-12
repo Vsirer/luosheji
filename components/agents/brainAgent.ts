@@ -1,26 +1,26 @@
-import { BaseAgent } from "./baseAgent";
-import { Config, SmartImageConfig } from "../../types";
-import { directorAgent } from "./directorAgent";
-import { imageAgent } from "./imageAgent";
-import { videoAgent } from "./videoAgent";
+import { BaseAgent } from "./baseAgent.ts";
+import type { Config, SmartImageConfig } from "../../types.ts";
+import { directorAgent } from "./directorAgent.ts";
+import { imageAgent } from "./imageAgent.ts";
+import { videoAgent } from "./videoAgent.ts";
 
 // Import all system skills and plugins to directly utilize their instructions
-import { createScriptSkill } from "../../skills/definitions/createScript";
-import { analyzeScriptSkill } from "../../skills/definitions/analyzeScript";
-import { rewriteScriptSkill } from "../../skills/definitions/rewriteScript";
-import { videoDissectSkill } from "../../skills/definitions/videoDissect";
-import { assetPromptSkill } from "../../skills/definitions/assetPromptSkill";
-import { shotPromptSkill } from "../../skills/definitions/shotPromptSkill";
-import { sixViewSkill } from "../../skills/definitions/sixView";
-import { scenePlanSkill } from "../../skills/definitions/scenePlan";
-import { gridStoryboardSkill } from "../../skills/definitions/gridStoryboard";
-import { panoramaSkill } from "../../plugin/definitions/panorama";
-import { cameraControlSkill } from "../../plugin/definitions/cameraControl";
-import { officePitchDeckSkill } from "../../skills/definitions/officePitchDeck";
-import { officeAdScriptSkill } from "../../skills/definitions/officeAdScript";
-import { officeBriefProposalSkill } from "../../skills/definitions/officeBriefProposal";
-import { dnaSkill } from "../../skills/definitions/dnaSkill";
-import { assetLibrarySkill } from "../../skills/definitions/assetLibrarySkill";
+import { createScriptSkill } from "../../skills/definitions/createScript.ts";
+import { analyzeScriptSkill } from "../../skills/definitions/analyzeScript.ts";
+import { rewriteScriptSkill } from "../../skills/definitions/rewriteScript.ts";
+import { videoDissectSkill } from "../../skills/definitions/videoDissect.ts";
+import { assetPromptSkill } from "../../skills/definitions/assetPromptSkill.ts";
+import { shotPromptSkill } from "../../skills/definitions/shotPromptSkill.ts";
+import { sixViewSkill } from "../../skills/definitions/sixView.ts";
+import { scenePlanSkill } from "../../skills/definitions/scenePlan.ts";
+import { gridStoryboardSkill } from "../../skills/definitions/gridStoryboard.ts";
+import { panoramaSkill } from "../../plugin/definitions/panorama.ts";
+import { cameraControlSkill } from "../../plugin/definitions/cameraControl.ts";
+import { officePitchDeckSkill } from "../../skills/definitions/officePitchDeck.ts";
+import { officeAdScriptSkill } from "../../skills/definitions/officeAdScript.ts";
+import { officeBriefProposalSkill } from "../../skills/definitions/officeBriefProposal.ts";
+import { dnaSkill } from "../../skills/definitions/dnaSkill.ts";
+import { assetLibrarySkill } from "../../skills/definitions/assetLibrarySkill.ts";
 
 export interface IntentStep {
   id: string;
@@ -116,35 +116,35 @@ const SKILL_INSTRUCTIONS: Record<string, { name: string; instruction: string }> 
 
 const BRAIN_AGENT_SYSTEM_INSTRUCTION = `
 你是 **小逻-多模态AI意图操作系统 (AI Intent OS)** 的核心调度与执行链规划大脑 (BrainAgent)。
-作为操作系统的大脑（CEO），你的核心职责是遵循 **「大脑（CEO）—— Agent（虚拟专业公司/工作室）—— Skill（公司内部专业的员工角色）」** 的三层企业架构进行统筹管理与任务规划。
+作为操作系统的系统大脑，你的核心职责是遵循 **「系统大脑 (BrainAgent) —— 专业智能体 (Agents) —— 技能特长 (Skills)」** 的三层系统架构进行统筹管理与任务规划。
 
-你掌管着以下 4 家顶尖的虚拟 Agent 公司（虚拟专业工作室）：
+你掌管着以下 4 个顶尖的专业智能体空间（虚拟专业工作室）：
 1. **🎬 奇迹影业/制剧工作室 (Miracle Pictures Studio)** (companyId: "miracle-pictures", companyName: "奇迹影业")：
    - **核心职责**: 提供从创意开发、剧本撰写、分镜镜头规划、电影级原画绘制到视效视频合成的全栈影片制作服务。
-   - **核心员工 (Skills)**:
+   - **技能特长 (Skills)**:
      * ✍️ 编剧专家 (create-script)：编写具有微表情五维动作描述的电影级剧本，彻底禁用人称代词。
      * 🎬 分镜导演 (shot-prompt)：设计专业级电影镜头、画幅景别与高级机位控制词。
      * 🎨 原画美术 (imageAgent)：绘制极具光影氛围的分镜场景与核心角色原画。
      * 🎥 视效总监 (videoAgent)：图生视频 (I2V)，合成电影感极佳的动态高精短片。
      * 🔍 剧本审计 (analyze-script)：进行深度拉片、结构节拍及代词禁用合规审计。
-     
+      
 2. **📊 极客营销与商业咨询公司 (Geek Marketing & Consulting Co.)** (companyId: "geek-marketing", companyName: "极客营销")：
    - **核心职责**: 提供品牌卖点提炼、PPT路演策划、宣传推广脚本以及商业策划简报撰写。
-   - **核心员工 (Skills)**:
+   - **技能特长 (Skills)**:
      * 🧠 品牌策划 (office-brief-proposal)：采用 FABE 法则深入提炼卖点，规划全链路营销执行。
      * ✍️ 广告文案 (office-ad-script)：撰写高转化带货话术、宣传片文案，使用 AVA（画/动/音）脚本结构。
      * 📊 路演大师 (office-pitch-deck)：规划结构严密、有极强说服力的 PPT 幻灯片方案，规划要点与演讲词。
 
 3. **🧭 无界VR全景与空间设计院 (Boundaryless VR & Space Design Institute)** (companyId: "boundaryless-vr", companyName: "无界VR设计院")：
    - **核心职责**: 专注于 3D 布局规划、720° VR 全景太空舱设计、相机光学参数调整。
-   - **核心员工 (Skills)**:
+   - **技能特长 (Skills)**:
      * 🧭 VR全景专家 (panorama)：绘制符合 2:1 等距柱状投影、左右边缘完全无缝拼接的 720° 漫游全景图。
      * 📐 空间规划师 (scene-plan)：设计场景空间与物理陈列布局，绘制正面、背面与多维透视图。
      * 📷 相机机械师 (camera-control)：微调焦段、光圈、色调以及冷暖光影，生成顶级摄影美学画面。
 
 4. **👤 概念幻想原画与设定工坊 (Fantasy Concept & Asset Art Workshop)** (companyId: "fantasy-workshop", companyName: "概念设定工坊")：
    - **核心职责**: 提供高精角色立绘转面（三视图）、九宫格视角探索、产品材质基因和提示词研发、视觉DNA特征提取以及变装与资产扩展。
-   - **核心员工 (Skills)**:
+   - **技能特长 (Skills)**:
      * 👤 角色设定师 (six-view)：设计高精角色立绘与转面三视图（正面、侧面、背面），使用灰色中性背景。
      * 🖼️ 九宫格画家 (grid-storyboard)：生产 3x3 九宫格分镜网格，适合多镜头机位和连续叙事探索。
      * 📦 资产质感师 (asset-prompt)：生成高质量视觉资产、道具或特定物品的概念基因和细节渲染提示词。

@@ -1,7 +1,7 @@
-import { SmartImageConfig, SmartImageResult, Config, Asset } from "../../types";
-import { BaseAgent } from "./baseAgent";
-import { urlToBase64 } from "../../services/utils";
-import { SHARED_ASSET_RULES } from "../../services/rules";
+import type { SmartImageConfig, SmartImageResult, Config, Asset } from "../../types.ts";
+import { BaseAgent } from "./baseAgent.ts";
+import { urlToBase64 } from "../../services/utils.ts";
+import { SHARED_ASSET_RULES } from "../../services/rules.ts";
 
 export const IMAGE_AGENT_SYSTEM_INSTRUCTION = `
 你是 **绘智 (Smart Image) 创意绘图智能体**。你是一位精通各种画风、构图和光影的 **顶级视觉艺术家**。

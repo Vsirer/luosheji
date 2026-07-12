@@ -1,5 +1,5 @@
-import { AiSkill } from "../types";
-import { SHARED_ASSET_RULES } from "../../services/rules";
+import { AiSkill } from "../types.ts";
+import { SHARED_ASSET_RULES } from "../../services/rules.ts";
 
 export const ASSET_LIBRARY_AGENT_SYSTEM_INSTRUCTION = `
 你是一位资深美术指导和资产库管理专家。你的核心使命是维护和优化全局资产库，确保每个资产的视觉一致性、DNA 深度以及提示词的专业性。

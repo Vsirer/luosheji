@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { uploadFromBase64, uploadFromUrl, getOSSClient } from './oss';
+import { uploadFromBase64, uploadFromUrl, getOSSClient } from './oss.ts';
 
 const getFilename = () => {
   try {

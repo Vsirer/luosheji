@@ -1,5 +1,5 @@
-import { assetAgent } from "../components/agents/assetAgent";
-import { Asset, Config, PipelineData, Segment } from "../types";
+import { assetAgent } from "../components/agents/assetAgent.ts";
+import { Asset, Config, PipelineData, Segment } from "../types.ts";
 
 export class AssetService {
   /**

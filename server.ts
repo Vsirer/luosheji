@@ -27,7 +27,7 @@ import bcrypt from "bcryptjs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { Agent, setGlobalDispatcher } from 'undici';
-import { Config } from "./types.ts";
+import type { Config } from "./types.ts";
 import { GoogleGenAI, Type } from "@google/genai";
 import { volcFetch } from "./lib/volcengine.ts";
 import { imageAgent } from "./components/agents/imageAgent.ts";

@@ -20,7 +20,6 @@ import {
   Cpu,
   Layers,
   AlertCircle,
-  Wand2,
   Send,
   X
 } from 'lucide-react';
@@ -85,6 +84,64 @@ root.render(<App />);`);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [showCodeEditor, setShowCodeEditor] = useState<boolean>(true);
   const [workshopError, setWorkshopError] = useState<string | null>(null);
+
+  // Workshop Chat History Support
+  interface ChatMessage {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: number;
+    success?: boolean;
+  }
+  const [workshopChatHistory, setWorkshopChatHistory] = useState<Record<string, ChatMessage[]>>(() => {
+    try {
+      const saved = localStorage.getItem('workshop_chat_history');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  const chatEndRef = React.useRef<HTMLDivElement>(null);
+
+  const activeChat = useMemo(() => {
+    return workshopChatHistory[workshopSelectedId] || [];
+  }, [workshopChatHistory, workshopSelectedId]);
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [activeChat]);
+
+  const addChatMessage = (role: 'user' | 'assistant', content: string, success?: boolean) => {
+    const newMessage: ChatMessage = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+      role,
+      content,
+      timestamp: Date.now(),
+      success
+    };
+    setWorkshopChatHistory(prev => {
+      const updated = {
+        ...prev,
+        [workshopSelectedId]: [...(prev[workshopSelectedId] || []), newMessage]
+      };
+      localStorage.setItem('workshop_chat_history', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleClearChatHistory = () => {
+    if (window.confirm('是否确认清空当前插件的对话记录？')) {
+      setWorkshopChatHistory(prev => {
+        const updated = { ...prev };
+        delete updated[workshopSelectedId];
+        localStorage.setItem('workshop_chat_history', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  };
 
   // Workshop Save Form State
   const [saveFormName, setSaveFormName] = useState<string>('');
@@ -384,10 +441,15 @@ root.render(<App />);`);
 
   // Workshop dynamic generation call
   const handleWorkshopGenerate = async () => {
-    if (!workshopPrompt.trim()) {
+    const currentPrompt = workshopPrompt.trim();
+    if (!currentPrompt) {
       setWorkshopError('请输入构想提示词');
       return;
     }
+    
+    // Add user message to chat history
+    addChatMessage('user', currentPrompt);
+
     setIsGenerating(true);
     setWorkshopError(null);
 
@@ -395,7 +457,7 @@ root.render(<App />);`);
     try {
       const isIncremental = workshopSelectedId !== 'new' || workshopCode.includes('function App');
       const body = {
-        prompt: workshopPrompt,
+        prompt: currentPrompt,
         existingCode: isIncremental ? workshopCode : undefined,
         modelSlot: selectedModelSlot
       };
@@ -418,10 +480,14 @@ root.render(<App />);`);
       if (data.success && data.code) {
         setWorkshopCode(data.code);
         setWorkshopPrompt('');
+        
+        // Add successful assistant reply to history
+        addChatMessage('assistant', `✨ 代码开发与迭代成功！已在右侧编辑器及实时沙盒中完成热更新，快去右侧进行功能测试吧。`, true);
+
         // Suggest automatic values if saving a brand new plugin
         if (workshopSelectedId === 'new' && !saveFormName) {
           // extract name placeholder
-          const tempName = workshopPrompt.substring(0, 10) + '...';
+          const tempName = currentPrompt.substring(0, 10) + '...';
           setSaveFormName(tempName);
         }
       } else {
@@ -429,7 +495,10 @@ root.render(<App />);`);
       }
     } catch (err: any) {
       console.error(err);
-      setWorkshopError(err.message || '网络连接或模型API配置有误');
+      const errMsg = err.message || '网络连接或模型API配置有误';
+      setWorkshopError(errMsg);
+      // Add failed assistant reply to history
+      addChatMessage('assistant', `⚠️ 编译生成失败：${errMsg}`, false);
     } finally {
       setIsGenerating(false);
     }
@@ -463,6 +532,18 @@ root.render(<App />);`);
 
     if (isNew) {
       userPlugins.push(savedPayload);
+      // Migrate chat history
+      setWorkshopChatHistory(prev => {
+        const updated = { ...prev };
+        if (updated[workshopSelectedId]) {
+          updated[pluginId] = updated[workshopSelectedId];
+          if (workshopSelectedId === 'new') {
+            delete updated['new'];
+          }
+        }
+        localStorage.setItem('workshop_chat_history', JSON.stringify(updated));
+        return updated;
+      });
     } else {
       const idx = userPlugins.findIndex((p: any) => p.id === pluginId);
       if (idx !== -1) {
@@ -687,7 +768,7 @@ root.render(<App />);`);
                   </span>
 
                    <div className="flex items-center space-x-1.5">
-                    {!skill.isSystem && (
+                    {(!skill.isSystem || user?.role === 'admin') && (
                       <button
                         onClick={() => {
                           setActiveTab('workshop');
@@ -700,21 +781,34 @@ root.render(<App />);`);
                         <span>{canModifyPlugin(skill) ? '编辑代码' : '查看代码'}</span>
                       </button>
                     )}
-                    <button
-                      onClick={() => {
-                        handleSelectSkill(skill.id);
-                      }}
-                      className={`px-2.5 py-1.5 text-[11px] font-bold rounded-xl flex items-center space-x-1 border transition-all cursor-pointer ${
-                        selectedPluginIds.includes(skill.id)
-                          ? 'bg-indigo-50 text-indigo-700 border-indigo-100/55'
-                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 active:scale-95'
-                      }`}
-                    >
-                      {selectedPluginIds.includes(skill.id) && (
-                        <Check className="w-3.5 h-3.5 animate-in zoom-in-50 duration-200" />
-                      )}
-                      <span>{selectedPluginIds.includes(skill.id) ? '已选中' : '选择'}</span>
-                    </button>
+                    {selectedPluginIds.includes(skill.id) ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            handleSelectSkill(skill.id);
+                          }}
+                          className="px-3 py-1.5 text-[11px] text-red-500 hover:text-red-700 font-bold hover:bg-red-50 rounded-xl transition-all cursor-pointer"
+                        >
+                          移除
+                        </button>
+                        <button
+                          className="px-2.5 py-1.5 text-[11px] font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100/55 cursor-default flex items-center space-x-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>已添加</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          handleSelectSkill(skill.id);
+                        }}
+                        className="px-3.5 py-1.5 text-[11px] font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-all flex items-center space-x-1 cursor-pointer active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>添加</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -735,16 +829,6 @@ root.render(<App />);`);
         <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-[#f8fafc] animate-in fade-in duration-300">
           {/* Workshop Control Sidebar */}
           <div className="w-full md:w-[380px] border-r border-slate-200/60 bg-white flex flex-col overflow-y-auto shrink-0 p-6 space-y-6">
-            <div className="space-y-1">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center">
-                <Wand2 className="w-4 h-4 mr-1.5 text-indigo-500 animate-pulse" />
-                <span>AI 提词开发面板</span>
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                用自然语言直接向大模型描述需求，一键完成插件的代码开发。
-              </p>
-            </div>
-
             {!canModifySelectedWorkshopPlugin && (
               <div className="p-3 bg-amber-50 text-amber-800 text-[11px] rounded-xl border border-amber-100 flex items-start space-x-1.5">
                 <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
@@ -754,8 +838,56 @@ root.render(<App />);`);
               </div>
             )}
 
+            {/* Conversation/Dialogue History Panel */}
+            <div className="space-y-2">
+              <div className="border border-slate-100 rounded-2xl bg-slate-50/50 p-3 h-[240px] overflow-y-auto space-y-3.5 scrollbar-thin">
+                {activeChat.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 space-y-1.5 py-4">
+                    <Bot className="w-8 h-8 text-slate-300 animate-pulse" />
+                    <span className="text-[10px] font-bold">暂无迭代对话记录</span>
+                    <span className="text-[9px] text-slate-400 leading-normal max-w-[220px]">
+                      在下方输入开发构想或选择推荐预设，大模型将在此展示多轮对话历史。
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
+                    {activeChat.map((msg) => {
+                      const isUser = msg.role === 'user';
+                      return (
+                        <div key={msg.id} className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                          {/* Avatar */}
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                            isUser ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {isUser ? 'U' : <Bot className="w-3.5 h-3.5 text-slate-500" />}
+                          </div>
+
+                          {/* Message bubble */}
+                          <div className={`max-w-[85%] rounded-2xl p-2.5 text-[11px] leading-relaxed shadow-xs ${
+                            isUser 
+                              ? 'bg-indigo-600 text-white rounded-tr-none font-medium' 
+                              : msg.success === false
+                                ? 'bg-rose-50 text-rose-800 border border-rose-100 rounded-tl-none font-medium'
+                                : msg.success === true
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-tl-none font-medium'
+                                  : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'
+                          }`}>
+                            <div className="whitespace-pre-wrap">{msg.content}</div>
+                            <div className={`text-[8px] mt-1 text-right block ${isUser ? 'text-indigo-200' : 'text-slate-400'}`}>
+                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={chatEndRef} />
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Prompt Input & Presets */}
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 pt-2 border-t border-slate-100/50">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-700">
                   开发构想提示词
@@ -782,7 +914,6 @@ root.render(<App />);`);
                 <span className="text-[10px] font-bold text-slate-400 block">推荐快速启动预设：</span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { label: '⏱️ 番茄倒计时', prompt: '制作一个高级玻璃拟态数字时钟，包含时分秒、毫秒秒表 and 25分钟番茄钟计时器。配色高级，自带微动效。' },
                     { label: '🎨 精美色卡生成', prompt: '制作一个配色卡生成器，随机生成5种相近色卡，点击一键复制Hex，同时使用Recharts显示色彩饱和雷达图。' },
                     { label: '✏️ 白板涂鸦本', prompt: '制作一个画布涂鸦画板。支持鼠标拖动或触控绘画，提供5个高级预设颜色，可以调粗细，支持清空和撤销。' },
                     { label: '📊 销售大盘看板', prompt: '使用Recharts制作一个精美的公司业务销售看板。包含趋势折线图 and 产品销量占比饼图。内置随机波动刷新。' }

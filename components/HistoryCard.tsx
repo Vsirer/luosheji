@@ -1105,34 +1105,18 @@ export const HistoryCard = React.memo(
 
     if (item.status === "draft_new") {
       // Choose icon and label based on item type
-      let cardIcon = <Sparkles className="w-5 h-5 text-indigo-400" />;
-      let cardTitle = "文本意图";
-      let cardDesc = "一键唤醒小逻生成文本";
-      let cardTag = "Text Node";
-      let tagBg = "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
-      let centralDetail = "✍️ 键入创意指令，编译剧本文案";
+      let cardIcon = <Sparkles className="w-4 h-4 text-zinc-400" />;
+      let cardTitle = "Script Gen";
 
       if (item.type === "image") {
-        cardIcon = <ImageIcon className="w-5 h-5 text-teal-400" />;
-        cardTitle = "画面意图";
-        cardDesc = "一键唤醒小逻生图";
-        cardTag = "Image Node";
-        tagBg = "bg-teal-500/10 text-teal-400 border-teal-500/20";
-        centralDetail = "🎨 描述画面构图，绘制精美艺术";
+        cardIcon = <ImageIcon className="w-4 h-4 text-zinc-400" />;
+        cardTitle = "Image Gen";
       } else if (item.type === "video") {
-        cardIcon = <Film className="w-5 h-5 text-purple-400" />;
-        cardTitle = "镜头意图";
-        cardDesc = "一键唤醒小逻生视频";
-        cardTag = "Video Node";
-        tagBg = "bg-purple-500/10 text-purple-400 border-purple-500/20";
-        centralDetail = "🎬 规划运镜构想，渲染震撼视频";
+        cardIcon = <Film className="w-4 h-4 text-zinc-400" />;
+        cardTitle = "Video Gen";
       } else if (item.type === "code" || item.type === "ui") {
-        cardIcon = <Code className="w-5 h-5 text-blue-400" />;
-        cardTitle = "运行沙盒";
-        cardDesc = "智能编译动态 UI 组件";
-        cardTag = "Component Node";
-        tagBg = "bg-blue-500/10 text-blue-400 border-blue-500/20";
-        centralDetail = "⚡ 实时渲染高保真、交互式前端沙盒";
+        cardIcon = <Code className="w-4 h-4 text-zinc-400" />;
+        cardTitle = "UI Gen";
       }
 
       return (
@@ -1147,14 +1131,14 @@ export const HistoryCard = React.memo(
           }}
           whileHover={{ scale: isDragDisabled ? 1 : 1.01, zIndex: 50 }}
           className={cn(
-            "absolute group bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden history-card-drag-area",
+            "absolute group bg-[#f4f5f7]/95 backdrop-blur-xl border border-zinc-200/60 rounded-[28px] shadow-xl shadow-zinc-950/5 transition-[border-color,box-shadow,background-color] duration-200 flex flex-col justify-between touch-none overflow-hidden history-card-drag-area",
             layoutMode === "semi_auto"
               ? getSemiAutoBorderStyles(item)
-              : "hover:border-zinc-700 hover:shadow-2xl hover:shadow-black/60",
+              : "hover:border-zinc-300",
             isMultiSelected || isSelected || dockedItemId === item.id
               ? layoutMode === "semi_auto"
                 ? getSemiAutoActiveStyles(item)
-                : "border-indigo-500/80 ring-4 ring-indigo-500/10 shadow-2xl shadow-indigo-500/10"
+                : "border-indigo-500/80 ring-4 ring-indigo-500/10 shadow-2xl"
               : ""
           )}
           style={{ 
@@ -1188,14 +1172,14 @@ export const HistoryCard = React.memo(
               style={{ top: `${spec.height / 2}px` }}
             >
               <div className={cn(
-                "relative flex items-center justify-center w-8 h-8 rounded-full border border-zinc-800 bg-zinc-950 transition-all duration-300",
+                "relative flex items-center justify-center w-8 h-8 rounded-full border-2 border-white bg-[#131722] shadow-lg transition-all duration-300",
                 dockedItemId === item.id
                   ? item.type === "video" 
                     ? "border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)] scale-110" 
                     : "border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.8)] scale-110"
                   : item.type === "video"
-                    ? "border-purple-500/40 group-hover:border-purple-500/70"
-                    : "border-indigo-500/40 group-hover:border-indigo-500/70"
+                    ? "border-white"
+                    : "border-white"
               )}>
                 <div className={cn(
                   "w-2.5 h-2.5 rounded-full transition-all duration-350",
@@ -1228,14 +1212,14 @@ export const HistoryCard = React.memo(
               style={{ top: `${spec.height / 2}px` }}
             >
               <div className={cn(
-                "relative flex items-center justify-center w-8 h-8 rounded-full border border-zinc-800 bg-zinc-950 transition-all duration-300",
+                "relative flex items-center justify-center w-8 h-8 rounded-full border-2 border-white bg-[#131722] shadow-lg transition-all duration-300",
                 dockedItemId === item.id
                   ? item.type === "video"
                     ? "border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)] scale-110"
                     : "border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.8)] scale-110"
                   : item.type === "video"
-                    ? "border-purple-500/40 group-hover:border-purple-500/70"
-                    : "border-indigo-500/40 group-hover:border-indigo-500/70"
+                    ? "border-white"
+                    : "border-white"
               )}>
                 <div className={cn(
                   "w-2.5 h-2.5 rounded-full transition-all duration-350",
@@ -1263,60 +1247,23 @@ export const HistoryCard = React.memo(
             {/* Header section */}
             <div className="flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
-                <div className="p-1.5 bg-zinc-950/60 rounded-lg border border-zinc-800/40 flex items-center justify-center">
-                  {cardIcon}
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-zinc-100 font-bold text-xs leading-tight tracking-wide">{cardTitle}</span>
-                  <span className="text-zinc-400 text-[10px] scale-90 origin-left mt-0.5">{cardDesc}</span>
-                </div>
+                {cardIcon}
+                <span className="text-zinc-500 font-semibold text-xs leading-none tracking-wide">{cardTitle}</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <span className={cn("text-[9px] px-2 py-0.5 rounded-full border font-mono font-medium tracking-wide shadow-sm scale-90", tagBg)}>
-                  {cardTag}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove(item.id);
-                  }}
-                  className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 rounded-full transition-all cursor-pointer active:scale-95"
-                  title="删除占位卡片"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item.id);
+                }}
+                className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 rounded-full transition-all cursor-pointer active:scale-95"
+                title="删除占位卡片"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Central High-Contrast Minimalist Guiding Section */}
-            <div className="flex-1 flex flex-col items-center justify-center py-4 text-center space-y-3">
-              <div className="p-4 bg-zinc-950/40 rounded-2xl border border-zinc-800/50 flex items-center justify-center">
-                {item.type === "gen_script" ? (
-                  <span className="text-3xl filter drop-shadow-md">✍️</span>
-                ) : item.type === "image" ? (
-                  <span className="text-3xl filter drop-shadow-md">🎨</span>
-                ) : (
-                  <span className="text-3xl filter drop-shadow-md">🎬</span>
-                )}
-              </div>
-              <div className="space-y-1">
-                <p className="text-[12px] text-zinc-200 font-medium tracking-wide">
-                  {centralDetail}
-                </p>
-                <p className="text-[10px] text-zinc-400 scale-95">
-                  {isSelected ? "👉 请在下方控制面板直接输入生成指令" : "💡 点击卡片可唤醒小逻指令编译面板"}
-                </p>
-              </div>
-            </div>
-
-            {/* Card Footer Status */}
-            <div className="pt-2 border-t border-zinc-800/40 flex items-center justify-between text-[10px]">
-              <span className="text-zinc-400 flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                <span className="font-medium">等待激活意图</span>
-              </span>
-              <span className="text-zinc-500 font-mono text-[9px]">ID: {item.id.slice(0, 8)}</span>
-            </div>
+            {/* Empty central area */}
+            <div className="flex-1" />
           </div>
         </motion.div>
       );

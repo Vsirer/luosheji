@@ -77,6 +77,7 @@ import {
   Wrench,
   ChevronsRight,
   Puzzle,
+  Code,
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
@@ -2561,6 +2562,86 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     };
   }, []);
 
+  const [wfShowSkillDropdown, setWfShowSkillDropdown] = useState(false);
+  const [wfSkillSearchQuery, setWfSkillSearchQuery] = useState("");
+  const [wfSkillDropdownIndex, setWfSkillDropdownIndex] = useState(0);
+
+  const workflowActiveSkills = React.useMemo(() => {
+    return workflowSkills.filter(s => s.tier !== 'heavy' && s.id !== 'general');
+  }, [workflowSkills]);
+
+  const wfFilteredSkills = React.useMemo(() => {
+    const query = wfSkillSearchQuery.toLowerCase();
+    return workflowActiveSkills.filter(skill => {
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        skill.id.toLowerCase().includes(query) ||
+        (skill.desc && skill.desc.toLowerCase().includes(query))
+      );
+    });
+  }, [workflowActiveSkills, wfSkillSearchQuery]);
+
+  const getCurrentPromptValue = () => {
+    if (isCollabModeActive) {
+      return collabInput;
+    }
+    if (mode === "video") {
+      return videoConfig?.prompt || "";
+    } else if (mode === "script" || mode === "director") {
+      return scriptConfig?.prompt || "";
+    } else {
+      return imageConfig?.prompt || "";
+    }
+  };
+
+  const updatePromptText = (newValue: string) => {
+    if (isCollabModeActive) {
+      setCollabInput(newValue);
+      return;
+    }
+    if (mode === "video") {
+      setVideoConfig((prev: any) => prev ? { ...prev, prompt: newValue } : prev);
+    } else if (mode === "script" || mode === "director") {
+      setScriptConfig((prev: any) => prev ? { ...prev, prompt: newValue } : prev);
+    } else {
+      setImageConfig((prev: any) => prev ? { ...prev, prompt: newValue } : prev);
+    }
+  };
+
+  const wfHandleSelectSkill = (skill: any) => {
+    const text = getCurrentPromptValue();
+    const selStart = textareaRef.current ? textareaRef.current.selectionStart : text.length;
+    let textBeforeCursor = text.slice(0, selStart);
+    let lastSlashIndex = textBeforeCursor.lastIndexOf('/');
+
+    if (lastSlashIndex === -1) {
+      lastSlashIndex = text.lastIndexOf('/');
+      textBeforeCursor = text;
+    }
+
+    if (lastSlashIndex !== -1) {
+      const prefix = text.slice(0, lastSlashIndex);
+      const suffix = text.slice(selStart);
+      
+      const hasIconEmoji = skill.icon && skill.name.startsWith(skill.icon);
+      const displayName = hasIconEmoji ? skill.name : (skill.icon ? `${skill.icon} ${skill.name}` : skill.name);
+      
+      const inserted = `${displayName} `;
+      const newValue = prefix + inserted + suffix;
+      updatePromptText(newValue);
+      setWfShowSkillDropdown(false);
+
+      // Refocus and place caret after inserted skill
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          const newCursorPos = lastSlashIndex + inserted.length;
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      }, 50);
+    }
+  };
+
   useEffect(() => {
     const handleAddPluginToCanvas = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -3581,6 +3662,12 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
     mediaUrl?: string,
     taskId?: string,
   ) => {
+    const isImage = targetId === "image";
+    const isVideo = targetId === "video";
+    const isScript = targetId === "script";
+    const customAgentName = isImage ? "灵境生图" : isVideo ? "灵境视频" : isScript ? "灵境创生" : undefined;
+    const customAgentIcon = isImage ? "🎨" : isVideo ? "🎬" : isScript ? "✍️" : undefined;
+
     const userMsg = {
       id: "user_" + Date.now() + Math.random().toString(36).substring(2, 9),
       role: "user" as const,
@@ -3596,6 +3683,8 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       url: mediaUrl,
       timestamp: Date.now() + 10,
       taskId,
+      agentName: customAgentName,
+      agentIcon: customAgentIcon,
     };
 
     if (collabAppendMessageFnRef.current) {
@@ -6777,6 +6866,7 @@ ${executionPrompt}
     // Grouping
     const groups = [
       { id: "tray-ref", name: "参考内容", items: [] as any[] },
+      { id: "ui-component", name: "组件 - UI", items: [] as any[] },
       { id: "img-char", name: "图片 - 角色", items: [] as any[] },
       { id: "img-scene", name: "图片 - 场景", items: [] as any[] },
       { id: "img-prop", name: "图片 - 道具", items: [] as any[] },
@@ -6796,7 +6886,9 @@ ${executionPrompt}
 
       const cat = getAssetCategory(asset);
       if (cat.main === "文本") {
-        if (cat.sub === "角色" || cat.sub === "资产" || asset.type === "character_asset") {
+        if (cat.sub === "组件") {
+          groups.find((g) => g.id === "ui-component")?.items.push(asset);
+        } else if (cat.sub === "角色" || cat.sub === "资产" || asset.type === "character_asset") {
           groups.find((g) => g.id === "text-asset")?.items.push(asset);
         } else if (cat.sub === "分镜提示词") {
           groups.find((g) => g.id === "text-story")?.items.push(asset);
@@ -6836,11 +6928,13 @@ ${executionPrompt}
   const handleMentionSelect = (asset: any) => {
     const isScript = mode === "script" || mode === "director";
     const isVideo = mode === "video";
-    const value = isVideo
-      ? videoConfig?.prompt || ""
-      : isScript
-        ? scriptConfig?.prompt || ""
-        : imageConfig?.prompt || "";
+    const value = isCollabModeActive
+      ? collabInput
+      : isVideo
+        ? videoConfig?.prompt || ""
+        : isScript
+          ? scriptConfig?.prompt || ""
+          : imageConfig?.prompt || "";
     const activeRef = textareaRef;
     const cursorPos = activeRef.current?.selectionStart || 0;
     const textBeforeCursor = value.slice(0, cursorPos);
@@ -6876,7 +6970,8 @@ ${executionPrompt}
         textBeforeCursor.slice(0, bindingMatch.index) +
         `${assetLabel}=@${asset.label} `;
       const newValue = newTextBefore + textAfterCursor;
-      if (isVideo) setVideoConfig({ ...videoConfig, prompt: newValue });
+      if (isCollabModeActive) setCollabInput(newValue);
+      else if (isVideo) setVideoConfig({ ...videoConfig, prompt: newValue });
       else if (isScript)
         setScriptConfig((prev) => ({ ...prev, prompt: newValue }));
       else setImageConfig({ ...imageConfig, prompt: newValue });
@@ -6887,7 +6982,8 @@ ${executionPrompt}
         textBeforeCursor.slice(0, reverseBindingMatch.index) +
         `${name}=@${asset.label} `;
       const newValue = newTextBefore + textAfterCursor;
-      if (isVideo) setVideoConfig({ ...videoConfig, prompt: newValue });
+      if (isCollabModeActive) setCollabInput(newValue);
+      else if (isVideo) setVideoConfig({ ...videoConfig, prompt: newValue });
       else if (isScript)
         setScriptConfig((prev) => ({ ...prev, prompt: newValue }));
       else setImageConfig({ ...imageConfig, prompt: newValue });
@@ -6896,7 +6992,9 @@ ${executionPrompt}
         textBeforeCursor.slice(0, mentionMatch.index) + `@${asset.label} `;
       const newValue = newTextBefore + textAfterCursor;
 
-      if (isVideo) {
+      if (isCollabModeActive) {
+        setCollabInput(newValue);
+      } else if (isVideo) {
         setVideoConfig({ ...videoConfig, prompt: newValue });
       } else if (isScript) {
         setScriptConfig((prev) => ({ ...prev, prompt: newValue }));
@@ -13650,6 +13748,55 @@ ${prompt}
                       : "border-gray-200 focus-within:border-indigo-500 focus-within:bg-white focus-within:shadow-[0_4px_12px_rgba(99,102,241,0.06)]",
                   )}
                 >
+                  {/* Skill Dropdown Menu */}
+                  {wfShowSkillDropdown && wfFilteredSkills.length > 0 && (
+                    <div className="absolute bottom-[100%] left-4 mb-2 z-[10100] w-80 bg-white border border-gray-100 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-2 max-h-64 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-150 text-slate-800">
+                      <div className="px-2.5 py-1 text-[10px] font-black tracking-wider text-gray-400 uppercase border-b border-gray-50 mb-1 flex items-center justify-between select-none">
+                        <span>💡 智选 & 调用 SKILL</span>
+                        <span className="text-[9px] lowercase text-gray-300">/ skill</span>
+                      </div>
+                      {wfFilteredSkills.map((skill, idx) => {
+                        const isSelected = idx === wfSkillDropdownIndex;
+                        const hasIconEmoji = skill.icon && skill.name.startsWith(skill.icon);
+                        const displayName = hasIconEmoji ? skill.name : (skill.icon ? `${skill.icon} ${skill.name}` : skill.name);
+                        
+                        return (
+                          <div
+                            key={skill.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              wfHandleSelectSkill(skill);
+                            }}
+                            onMouseEnter={() => setWfSkillDropdownIndex(idx)}
+                            className={`flex flex-col px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                              isSelected 
+                                ? 'bg-indigo-50 text-indigo-900' 
+                                : 'hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold">{displayName}</span>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded font-black border ${
+                                skill.category === 'image' 
+                                  ? 'bg-cyan-50 text-cyan-600 border-cyan-100/60' 
+                                  : skill.category === 'video' 
+                                    ? 'bg-purple-50 text-purple-600 border-purple-100/60' 
+                                    : 'bg-emerald-50 text-emerald-600 border-emerald-100/60'
+                              }`}>
+                                {skill.category === 'image' ? '生图' : skill.category === 'video' ? '视频' : '文本'}
+                              </span>
+                            </div>
+                            {skill.desc && (
+                              <span className="text-[10px] text-gray-400 mt-0.5 truncate max-w-full">
+                                {skill.desc}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <PromptWithMentions
                     textareaRef={textareaRef}
                     className={cn(
@@ -13659,6 +13806,7 @@ ${prompt}
                     fontSizeClass="text-sm"
                     lineHeightClass="leading-6"
                     assets={getMentionableAssets()}
+                    skills={workflowSkills}
                     placeholder={
                       hasParentConnection
                         ? "⚠️ 该节点已被上游节点连接，内容与生成须由上游节点驱动，无法使用底部控制台直接生成。请点击上游节点的「运行此节点」按钮。"
@@ -13675,7 +13823,7 @@ ${prompt}
                                   : "请输入剧本主题或大纲..."
                                 : scriptConfig.activeSubTab === "video"
                                   ? "请输入视频 background 描述或直接上传视频文件..."
-                                  : "请输入或粘贴需要处理的剧本内容..."
+                                  : "请输入或粘贴需要处理 of 剧本内容..."
                               : mode === "director"
                                 ? "请输入或粘贴您的剧本内容..."
                                 : GRID_MODES.find(
@@ -13695,12 +13843,28 @@ ${prompt}
                     }
                     onChange={(e) => {
                       const value = e.target.value;
-                      if (isCollabModeActive) {
-                        setCollabInput(value);
-                        return;
-                      }
+
+                      // Check for slash trigger for skills dropdown
                       const cursorPos = e.target.selectionStart;
                       const textBeforeCursor = value.slice(0, cursorPos);
+                      const lastSlashIndex = textBeforeCursor.lastIndexOf('/');
+
+                      if (lastSlashIndex !== -1) {
+                        const afterTrigger = textBeforeCursor.slice(lastSlashIndex + 1);
+                        if (!afterTrigger.includes(' ') && !afterTrigger.includes('\n')) {
+                          setWfShowSkillDropdown(true);
+                          setWfSkillSearchQuery(afterTrigger);
+                          setWfSkillDropdownIndex(0);
+                        } else {
+                          setWfShowSkillDropdown(false);
+                        }
+                      } else {
+                        setWfShowSkillDropdown(false);
+                      }
+
+                      if (isCollabModeActive) {
+                        setCollabInput(value);
+                      }
                       let bindingMatch = textBeforeCursor.match(
                         /(图|历史图|音频|视频)(\d+)\s*@$/,
                       );
@@ -13730,14 +13894,16 @@ ${prompt}
                       const mentionMatch =
                         textBeforeCursor.match(/@([^@\s]*)$/);
 
-                      if (mode === "video") {
-                        if (videoConfig)
-                          setVideoConfig({ ...videoConfig, prompt: value });
-                      } else if (mode === "script" || mode === "director") {
-                        setScriptConfig((prev) => ({ ...prev, prompt: value }));
-                      } else {
-                        if (imageConfig)
-                          setImageConfig({ ...imageConfig, prompt: value });
+                      if (!isCollabModeActive) {
+                        if (mode === "video") {
+                          if (videoConfig)
+                            setVideoConfig({ ...videoConfig, prompt: value });
+                        } else if (mode === "script" || mode === "director") {
+                          setScriptConfig((prev) => ({ ...prev, prompt: value }));
+                        } else {
+                          if (imageConfig)
+                            setImageConfig({ ...imageConfig, prompt: value });
+                        }
                       }
 
                       if (bindingMatch || reverseBindingMatch || mentionMatch) {
@@ -13759,9 +13925,33 @@ ${prompt}
                       }
                     }}
                     onKeyDown={(e) => {
+                      if (wfShowSkillDropdown && wfFilteredSkills.length > 0) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setWfSkillDropdownIndex(
+                            (prev) => (prev + 1) % wfFilteredSkills.length,
+                          );
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setWfSkillDropdownIndex(
+                            (prev) => (prev - 1 + wfFilteredSkills.length) % wfFilteredSkills.length,
+                          );
+                        } else if (e.key === "Enter" || e.key === "Tab") {
+                          e.preventDefault();
+                          if (wfFilteredSkills[wfSkillDropdownIndex]) {
+                            wfHandleSelectSkill(wfFilteredSkills[wfSkillDropdownIndex]);
+                          }
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setWfShowSkillDropdown(false);
+                        }
+                        return;
+                      }
+
                       if (showMentions) {
-                        const value =
-                          mode === "video"
+                        const value = isCollabModeActive
+                          ? collabInput
+                          : mode === "video"
                             ? videoConfig?.prompt
                             : mode === "script"
                               ? scriptConfig?.prompt
@@ -13821,8 +14011,9 @@ ${prompt}
                         </div>
                         <div className="max-h-48 overflow-y-auto p-1 text-slate-800">
                           {(() => {
-                            const value =
-                              mode === "video"
+                            const value = isCollabModeActive
+                              ? collabInput
+                              : mode === "video"
                                 ? videoConfig?.prompt
                                 : mode === "script"
                                   ? scriptConfig?.prompt
@@ -14006,11 +14197,11 @@ ${prompt}
                         {isCollabModeActive && !collabChatTargetId.endsWith('_ai')
                           ? "协同空间"
                           : isCollabModeActive && collabChatTargetId.endsWith('_ai')
-                            ? (collabAiSkill === "general" ? "小逻: 意图引导" : "小逻: 灵境创生")
+                            ? (collabAiSkill === "general" ? "小逻: 意图引导" : "灵境创生")
                             : (mode as string) === "image"
-                              ? "小逻: 灵境生图"
+                              ? "灵境生图"
                               : (mode as string) === "video"
-                                ? "小逻: 灵境视频"
+                                ? "灵境视频"
                                 : "小逻: 意图引导"}
                       </span>
                       <ChevronDown
@@ -14123,7 +14314,7 @@ ${prompt}
                                   灵境生图
                                 </p>
                                 <p className="text-[9px] text-[#818cf8] truncate">
-                                  常规 AI 绘图模式
+                                  仅载入SKILL与插件，不含智能体
                                 </p>
                               </div>
                             </button>
@@ -14152,7 +14343,7 @@ ${prompt}
                                   灵境视频
                                 </p>
                                 <p className="text-[9px] text-purple-400 truncate">
-                                  高品质视频生成引擎
+                                  仅载入SKILL与插件，不含智能体
                                 </p>
                               </div>
                             </button>
@@ -14185,7 +14376,7 @@ ${prompt}
                                   )}
                                 </p>
                                 <p className="text-[9px] text-amber-500 truncate">
-                                  文案 剧本 策划等文本
+                                  仅载入SKILL与插件，不含智能体
                                 </p>
                               </div>
                             </button>

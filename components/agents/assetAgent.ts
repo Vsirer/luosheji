@@ -1,5 +1,5 @@
-import { aiDramaAgent, AI_DRAMA_AGENT_SYSTEM_INSTRUCTION } from "./aiDramaAgent";
-import { Asset, Config, PipelineData } from "../../types";
+import { aiDramaAgent, AI_DRAMA_AGENT_SYSTEM_INSTRUCTION } from "./aiDramaAgent.ts";
+import type { Asset, Config, PipelineData } from "../../types.ts";
 
 export const ASSET_AGENT_SYSTEM_INSTRUCTION = AI_DRAMA_AGENT_SYSTEM_INSTRUCTION;
 

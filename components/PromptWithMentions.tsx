@@ -7,6 +7,7 @@ interface PromptWithMentionsProps {
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   assets?: any[];
+  skills?: any[];
   className?: string;
   disabled?: boolean;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -25,14 +26,28 @@ interface Segment {
   asset?: any;
 }
 
-// Parse prompt text into plain text chunks and tagged mentions using exact match mapping to assets
-export function parsePrompt(text: string, assets: any[] = []): Segment[] {
+// Parse prompt text into plain text chunks and tagged mentions using exact match mapping to assets or skills
+export function parsePrompt(text: string, assets: any[] = [], skills: any[] = []): Segment[] {
   if (!text) return [];
 
   const knownLabels = assets
     .map((a) => a.label)
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
+
+  const knownSkillNames: string[] = [];
+  skills.forEach(skill => {
+    if (skill.name) {
+      knownSkillNames.push(skill.name);
+      const hasIconEmoji = skill.icon && skill.name.startsWith(skill.icon);
+      const displayName = hasIconEmoji ? skill.name : (skill.icon ? `${skill.icon} ${skill.name}` : skill.name);
+      if (displayName !== skill.name) {
+        knownSkillNames.push(displayName);
+      }
+    }
+  });
+  // Remove duplicates and sort descending
+  const uniqueSkillNames = Array.from(new Set(knownSkillNames)).sort((a, b) => b.length - a.length);
 
   const escapeRegExp = (str: string) =>
     str.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
@@ -42,7 +57,13 @@ export function parsePrompt(text: string, assets: any[] = []): Segment[] {
     const escapedLabels = knownLabels.map(escapeRegExp);
     regexParts.push(`@(${escapedLabels.join("|")})`);
   }
-  
+
+  // 2. Skill display names (with optional leading slash)
+  if (uniqueSkillNames.length > 0) {
+    const escapedSkills = uniqueSkillNames.map(escapeRegExp);
+    regexParts.push(`(?:\\/)?(${escapedSkills.join("|")})`);
+  }
+
   // Create a regex for standard characters-based mentions so typed text is recognized
   regexParts.push(`@([A-Za-z0-9_\\u4e00-\\u9fa5\\-·]+)`);
 
@@ -61,15 +82,38 @@ export function parsePrompt(text: string, assets: any[] = []): Segment[] {
     }
 
     const matchedText = match[0];
-    const mentionText = matchedText.slice(1);
+    const cleanMatchedText = matchedText.startsWith("/") ? matchedText.slice(1) : matchedText;
 
-    const foundAsset = assets.find((a) => a.label === mentionText);
-
-    segments.push({
-      type: "mention",
-      text: matchedText,
-      asset: foundAsset,
+    // Check if it's a known skill display name
+    const foundSkill = skills.find((s) => {
+      const hasIconEmoji = s.icon && s.name.startsWith(s.icon);
+      const displayName = hasIconEmoji ? s.name : (s.icon ? `${s.icon} ${s.name}` : s.name);
+      return s.name === cleanMatchedText || displayName === cleanMatchedText;
     });
+
+    if (foundSkill) {
+      const hasIconEmoji = foundSkill.icon && foundSkill.name.startsWith(foundSkill.icon);
+      const displayName = hasIconEmoji ? foundSkill.name : (foundSkill.icon ? `${foundSkill.icon} ${foundSkill.name}` : foundSkill.name);
+      segments.push({
+        type: "mention",
+        text: matchedText,
+        asset: {
+          id: foundSkill.id,
+          label: displayName,
+          type: "skill",
+          icon: foundSkill.icon,
+        },
+      });
+    } else {
+      const mentionText = matchedText.startsWith("@") ? matchedText.slice(1) : matchedText;
+      const foundAsset = assets.find((a) => a.label === mentionText);
+
+      segments.push({
+        type: "mention",
+        text: matchedText,
+        asset: foundAsset,
+      });
+    }
 
     lastIndex = regex.lastIndex;
   }
@@ -113,7 +157,7 @@ export function htmlToText(node: Node): string {
 }
 
 // Convert text into colored HTML with inline thumbnail elements
-export function textToHtml(text: string, assets: any[] = []): string {
+export function textToHtml(text: string, assets: any[] = [], skills: any[] = []): string {
   if (!text) return "";
 
   const escapeHtml = (str: string) => {
@@ -125,7 +169,7 @@ export function textToHtml(text: string, assets: any[] = []): string {
       .replace(/'/g, "&#039;");
   };
 
-  const segments = parsePrompt(text, assets);
+  const segments = parsePrompt(text, assets, skills);
 
   return segments
     .map((seg) => {
@@ -137,7 +181,9 @@ export function textToHtml(text: string, assets: any[] = []): string {
           const type = (asset.type || "").toLowerCase();
           const label = (asset.label || "").toLowerCase();
 
-          if (type === "character" || type === "character_asset" || label.includes("角色")) {
+          if (type === "skill") {
+            category = "skill";
+          } else if (type === "character" || type === "character_asset" || label.includes("角色")) {
             category = "text";
           } else if (type === "audio" || label.includes("音频") || type === "sound") {
             category = "audio";
@@ -150,7 +196,9 @@ export function textToHtml(text: string, assets: any[] = []): string {
 
         // Beautiful professional background presets
         let bgClass = "bg-[#f1f5f9] text-[#475569] border-[#cbd5e1]";
-        if (category === "text") {
+        if (category === "skill") {
+          bgClass = "bg-[#eef2ff] text-[#4f46e5] border-[#c7d2fe]";
+        } else if (category === "text") {
           bgClass = "bg-[#f7fee7] text-[#4d7c0f] border-[#d9f99d]";
         } else if (category === "audio") {
           bgClass = "bg-[#f5f3ff] text-[#6d28d9] border-[#ddd6fe]";
@@ -182,7 +230,7 @@ export function textToHtml(text: string, assets: any[] = []): string {
           } else {
             mediaHtml = `<span class="w-4 h-4 rounded overflow-hidden flex items-center justify-center bg-black/10 inline-block align-middle mr-1 border border-black/5 flex-shrink-0"><img src="${resolvedThumb}" class="w-full h-full object-cover" referrerpolicy="no-referrer" /></span>`;
           }
-        } else {
+        } else if (category !== "skill") {
           // Default icon matching category if no thumbnail exists
           let iconSvg = "@";
           if (category === "text") iconSvg = `<span class="text-[10px] text-green-700 font-bold">👤</span>`;
@@ -314,6 +362,7 @@ export const PromptWithMentions: React.FC<PromptWithMentionsProps> = ({
   onChange,
   placeholder = "",
   assets = [],
+  skills = [],
   className = "",
   disabled = false,
   onKeyDown,
@@ -337,7 +386,7 @@ export const PromptWithMentions: React.FC<PromptWithMentionsProps> = ({
         const isFocused = document.activeElement === el;
         const currentOffset = isFocused ? getCaretCharacterOffsetWithin(el) : null;
 
-        el.innerHTML = textToHtml(value, assets);
+        el.innerHTML = textToHtml(value, assets, skills);
 
         if (isFocused && currentOffset !== null) {
           try {

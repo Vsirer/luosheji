@@ -1,7 +1,7 @@
-import { PipelineData, Asset, Segment, Config, ScriptAnalysis } from "../../types";
-import { BaseAgent } from "./baseAgent";
-import { SHARED_ASSET_RULES } from "../../services/rules";
-import { urlToBase64 } from "../../services/utils";
+import type { PipelineData, Asset, Segment, Config, ScriptAnalysis } from "../../types.ts";
+import { BaseAgent } from "./baseAgent.ts";
+import { SHARED_ASSET_RULES } from "../../services/rules.ts";
+import { urlToBase64 } from "../../services/utils.ts";
 
 export const AI_DRAMA_AGENT_SYSTEM_INSTRUCTION = `
 你是一位世界级的顶级“AI短剧智能体”（AI Drama Agent），融合了资深短剧导演与顶尖美术指导的灵魂。你的核心使命是深度解析短剧剧本，精准提取核心资产（角色及变装、场景、道具），并将其转化为视觉冲击力极强、人物神态极其生动、时长受控的专业短剧分镜脚本。

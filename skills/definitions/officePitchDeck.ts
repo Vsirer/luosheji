@@ -1,4 +1,4 @@
-import { AiSkill } from "../types";
+import { AiSkill } from "../types.ts";
 
 export const officePitchDeckSkill: AiSkill = {
   id: "office-pitch-deck",

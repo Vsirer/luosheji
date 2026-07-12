@@ -192,7 +192,7 @@ export const getHistoryItemClassification = (item: any): 'character' | 'scene' |
   return "character";
 };
 
-export const getAssetCategory = (asset: any): { main: "图片" | "视频" | "音频" | "文本"; sub?: "角色" | "场景" | "道具" | "分镜" | "剧本" | "资产" | "分镜提示词" } => {
+export const getAssetCategory = (asset: any): { main: "图片" | "视频" | "音频" | "文本"; sub?: "角色" | "场景" | "道具" | "分镜" | "剧本" | "资产" | "分镜提示词" | "组件" } => {
   // 1. Text category
   if (
     asset.type === "character_asset" ||
@@ -209,6 +209,14 @@ export const getAssetCategory = (asset: any): { main: "图片" | "视频" | "音
       else if (cls === "shot_prompt") subCls = "分镜提示词";
     }
     return { main: "文本", sub: subCls };
+  }
+
+  if (
+    asset.type === "code" ||
+    asset.type === "ui" ||
+    (typeof asset.label === "string" && (asset.label.includes("组件") || asset.label.includes("UI")))
+  ) {
+    return { main: "文本", sub: "组件" };
   }
 
   // 1.5 Audio category (separate from Video)

@@ -1,4 +1,4 @@
-import { aiDramaAgent, AI_DRAMA_AGENT_SYSTEM_INSTRUCTION, AiDramaAgent } from "./aiDramaAgent";
+import { aiDramaAgent, AI_DRAMA_AGENT_SYSTEM_INSTRUCTION, AiDramaAgent } from "./aiDramaAgent.ts";
 
 export const DIRECTOR_AGENT_SYSTEM_INSTRUCTION = AI_DRAMA_AGENT_SYSTEM_INSTRUCTION;
 export const directorAgent = aiDramaAgent;

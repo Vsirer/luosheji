@@ -1,5 +1,5 @@
-import { AiSkill } from "../types";
-import { ASSET_AGENT_SYSTEM_INSTRUCTION } from "../../components/agents/assetAgent";
+import { AiSkill } from "../types.ts";
+import { ASSET_AGENT_SYSTEM_INSTRUCTION } from "../../components/agents/assetAgent.ts";
 
 export const assetPromptSkill: AiSkill = {
   id: "asset-prompt",

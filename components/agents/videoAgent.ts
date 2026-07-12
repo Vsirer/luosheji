@@ -1,8 +1,8 @@
-import { Config, ApiConfig } from "../../types";
-import { BaseAgent } from "./baseAgent";
-import { safeJson } from "../../lib/fetch";
-import { toBase64 } from "../../lib/utils";
-import { urlToBase64 } from "../../services/utils";
+import type { Config, ApiConfig } from "../../types.ts";
+import { BaseAgent } from "./baseAgent.ts";
+import { safeJson } from "../../lib/fetch.ts";
+import { toBase64 } from "../../lib/utils.ts";
+import { urlToBase64 } from "../../services/utils.ts";
 
 export const VIDEO_AGENT_SYSTEM_INSTRUCTION = `
 你是 **视界 (Vision) 视频创作智能体**。你是一位精通电影剪辑、特效制作和动态视觉设计的 **顶级视频制作人**。
