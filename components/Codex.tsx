@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import { WebSandbox } from './os/WebSandbox';
 import { GenerativeUI } from './os/GenerativeUI';
 import { PipelineTuningModal } from './os/PipelineTuningModal';
+import { OSEngineTab } from './os/OSEngineTab';
+import { EventBus } from '../lib/os/EventBus';
 import { 
   MessageSquare, 
   Users, 
@@ -153,8 +155,8 @@ interface CodexProps {
   onExternalAiSkillChange?: (val: string) => void;
   onRegisterShowSkillsModal?: (showFn: () => void) => void;
   onClose?: () => void;
-  externalActiveSubTab?: 'groupChat' | 'groupManagement' | 'fileManagement';
-  onExternalActiveSubTabChange?: (tab: 'groupChat' | 'groupManagement' | 'fileManagement') => void;
+  externalActiveSubTab?: 'groupChat' | 'groupManagement' | 'fileManagement' | 'osEngine';
+  onExternalActiveSubTabChange?: (tab: 'groupChat' | 'groupManagement' | 'fileManagement' | 'osEngine') => void;
   externalActiveQuote?: Message | null;
   onExternalActiveQuoteChange?: (quote: Message | null) => void;
   // External script creation parameters
@@ -1385,9 +1387,9 @@ export const Codex: React.FC<CodexProps> = ({
     }
   };
 
-  const [localActiveSubTab, setLocalActiveSubTab] = useState<'groupChat' | 'groupManagement' | 'fileManagement'>('groupChat');
+  const [localActiveSubTab, setLocalActiveSubTab] = useState<'groupChat' | 'groupManagement' | 'fileManagement' | 'osEngine'>('groupChat');
   const activeSubTab = externalActiveSubTab !== undefined ? externalActiveSubTab : localActiveSubTab;
-  const setActiveSubTab = (tab: 'groupChat' | 'groupManagement' | 'fileManagement') => {
+  const setActiveSubTab = (tab: 'groupChat' | 'groupManagement' | 'fileManagement' | 'osEngine') => {
     setLocalActiveSubTab(tab);
     onExternalActiveSubTabChange?.(tab);
   };
@@ -3301,6 +3303,26 @@ ${sourceMsg.content}`;
         ...initialPlan,
         steps: initialPlan.steps ? initialPlan.steps.map((s: any) => ({ ...s })) : []
       };
+
+      // Publish to Event Bus for Figure 2 State Tracking
+      EventBus.publish('INTENT_RECEIVED', 'UserChat', {
+        id: `int_${pipelineMsgId}`,
+        rawText: `执行流水线: ${initialPlan.rationale || '无计划'}`,
+        standardizedIntent: 'Workflow Pipeline Execution',
+        source: 'UserChat',
+        timestamp: Date.now()
+      }, `收到执行流水线意图，共 ${updatedPlan.steps!.length} 个子任务。`);
+
+      EventBus.publish('GOAL_PLANNED', 'GoalPlanner', {
+        id: `goal_${pipelineMsgId}`,
+        intentId: `int_${pipelineMsgId}`,
+        name: initialPlan.rationale || 'Workflow execution',
+        rationale: '按顺序执行分步工作流',
+        lifecycle: 'RUNNING',
+        businessState: 'NONE',
+        dependencies: [],
+        timestamp: Date.now()
+      }, `目标引擎已生成 DAG 任务目标：${initialPlan.rationale || '分步工作流'}`);
       const outputs: Record<string, any> = {};
 
       // Gather outputs of all completed steps prior to startStepIndex
@@ -3335,6 +3357,20 @@ ${sourceMsg.content}`;
         }
         step.status = 'running';
         step.error = undefined; // Clear previous error
+
+        // Publish Task Running Event to EventBus for Figure 2 Real-Time Monitoring
+        EventBus.publish('TASK_STATUS_CHANGED', 'ActorRuntime', {
+          id: step.id,
+          goalId: `goal_${pipelineMsgId}`,
+          name: step.label,
+          type: step.type,
+          prompt: step.prompt,
+          lifecycle: 'RUNNING',
+          businessState: 'NONE',
+          dependsOn: [],
+          assignedActorId: step.type === 'script' ? 'actor_script' : step.type === 'image' ? 'actor_image' : step.type === 'video' ? 'actor_video' : 'actor_brain',
+          timestamp: Date.now()
+        }, `执行体已激活：[${step.employeeRole || '小逻'}] 开始处理 [${step.label}]`);
         if (setHistory) {
           setHistory(prev => prev.map(h => h.id === step.id ? { 
             ...h, 
@@ -3682,6 +3718,21 @@ ${sourceMsg.content}`;
           step.status = 'completed';
           step.output = result;
 
+          // Publish Completed Event to EventBus for Figure 2 Real-Time Monitoring
+          EventBus.publish('TASK_STATUS_CHANGED', 'ActorRuntime', {
+            id: step.id,
+            goalId: `goal_${pipelineMsgId}`,
+            name: step.label,
+            type: step.type,
+            prompt: step.prompt,
+            lifecycle: 'COMPLETED',
+            businessState: 'NONE',
+            dependsOn: [],
+            assignedActorId: step.type === 'script' ? 'actor_script' : step.type === 'image' ? 'actor_image' : step.type === 'video' ? 'actor_video' : 'actor_brain',
+            output: result,
+            timestamp: Date.now()
+          }, `任务执行成功：[${step.label}]`);
+
           outputs[step.id] = result;
           outputs[step.type] = result;
 
@@ -3770,6 +3821,21 @@ ${sourceMsg.content}`;
           console.error(`Pipeline step ${step.id} failed:`, stepErr);
           step.status = 'failed';
           step.error = stepErr.message || String(stepErr);
+
+          // Publish Failed Event to EventBus for Figure 2 Real-Time Monitoring
+          EventBus.publish('TASK_STATUS_CHANGED', 'ActorRuntime', {
+            id: step.id,
+            goalId: `goal_${pipelineMsgId}`,
+            name: step.label,
+            type: step.type,
+            prompt: step.prompt,
+            lifecycle: 'FAILED',
+            businessState: 'NONE',
+            dependsOn: [],
+            assignedActorId: step.type === 'script' ? 'actor_script' : step.type === 'image' ? 'actor_image' : step.type === 'video' ? 'actor_video' : 'actor_brain',
+            error: step.error,
+            timestamp: Date.now()
+          }, `任务执行失败：[${step.label}]，原因: ${step.error}`);
 
           if (setHistory) {
             setHistory(prev => prev.map(h => h.id === step.id ? { ...h, status: 'failed', error: step.error } : h));
@@ -5822,6 +5888,10 @@ ${sourceMsg.content}`;
           ) : activeSubTab === 'fileManagement' ? (
             <div className="w-full h-full">
               {renderFileManagement()}
+            </div>
+          ) : activeSubTab === 'osEngine' ? (
+            <div className="w-full h-full">
+              <OSEngineTab />
             </div>
           ) : (
             <div className="max-w-5xl mx-auto h-full">

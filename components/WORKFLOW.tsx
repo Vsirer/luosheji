@@ -784,7 +784,7 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
   }, []);
   const [collabActiveSkills, setCollabActiveSkills] = useState<any[]>([]);
   const collabShowSkillsModalFnRef = React.useRef<(() => void) | null>(null);
-  const [collabActiveSubTab, setCollabActiveSubTab] = useState<'groupChat' | 'groupManagement' | 'fileManagement'>('groupChat');
+  const [collabActiveSubTab, setCollabActiveSubTab] = useState<'groupChat' | 'groupManagement' | 'fileManagement' | 'osEngine'>('groupChat');
   const initialConfigScriptRef = React.useRef<any>(null);
   React.useEffect(() => {
     if (config?.script && !initialConfigScriptRef.current) {
@@ -14255,6 +14255,24 @@ ${prompt}
                       >
                         <FolderOpen className="w-3.5 h-3.5 text-indigo-500" />
                         <span>文件管理</span>
+                      </button>
+
+                      {/* Button: 小逻 OS 内核 */}
+                      <button
+                        onClick={() => {
+                          setIsCollabCollapsed(false);
+                          setCollabActiveSubTab(collabActiveSubTab === 'osEngine' ? 'groupChat' : 'osEngine');
+                        }}
+                        className={cn(
+                          "px-2.5 py-1.5 text-[11px] font-bold flex items-center space-x-1.5 rounded-xl transition-all border",
+                          collabActiveSubTab === 'osEngine'
+                            ? "bg-slate-900 border-indigo-500 text-indigo-400 shadow-sm font-black bg-indigo-500/10"
+                            : "bg-gray-50 border-gray-200/50 text-gray-600 hover:bg-gray-100 font-bold"
+                        )}
+                        title="查看和监控小逻 Agent OS 意图运行时内核"
+                      >
+                        <Cpu className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>小逻 OS 内核</span>
                       </button>
                     </>
                   )}

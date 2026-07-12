@@ -1043,7 +1043,7 @@ export const HistoryCard = React.memo(
               {isFailed && (
                 <div className="flex items-center justify-between py-1 px-2 bg-rose-500/10 rounded-2xl border border-rose-500/20">
                   <span className="text-[10px] text-rose-400 font-bold max-w-[200px] truncate">
-                    {typeof item.error === "object" ? (item.error?.message || JSON.stringify(item.error)) : String(item.error || "执行出错")}
+                    {(item.error && typeof item.error === "object") ? ((item.error as any).message || JSON.stringify(item.error)) : String(item.error || "执行出错")}
                   </span>
                   <button
                     onClick={(e) => {
@@ -3230,7 +3230,7 @@ export const HistoryCard = React.memo(
                 {item.error && (
                   <div className="bg-red-50/50 rounded-2xl p-3.5 border border-red-100/30 max-w-[85%]">
                     <p className="text-[11px] text-red-500/80 leading-relaxed break-all font-medium">
-                      {typeof item.error === "object" ? (item.error?.message || JSON.stringify(item.error)) : String(item.error)}
+                      {(item.error && typeof item.error === "object") ? ((item.error as any).message || JSON.stringify(item.error)) : String(item.error)}
                     </p>
                   </div>
                 )}
