@@ -96,7 +96,7 @@ export interface Memory {
 /** 9. Event (事件) - 内部系统发生的解耦通知 */
 export interface SysEvent {
   id: string;
-  type: 'INTENT_RECEIVED' | 'GOAL_PLANNED' | 'TASK_STATUS_CHANGED' | 'ACTOR_ACTIVATED' | 'CAPABILITY_CALLED' | 'MEMORY_STORED' | 'CONTEXT_UPDATED' | 'EVENT_TRIGGERED';
+  type: 'INTENT_RECEIVED' | 'GOAL_PLANNED' | 'TASK_STATUS_CHANGED' | 'ACTOR_ACTIVATED' | 'CAPABILITY_CALLED' | 'MEMORY_STORED' | 'CONTEXT_UPDATED' | 'EVENT_TRIGGERED' | 'ARTIFACT_CREATED';
   source: string; // Component or service that emitted it
   payload: any; // Associated core object detail
   timestamp: number;

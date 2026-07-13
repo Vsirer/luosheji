@@ -28,14 +28,15 @@ import { AiSkill, CustomSkillOption } from '../skills/types';
 import { SYSTEM_SKILLS } from '../skills/definitions';
 import { WorkflowPage } from './WorkflowPage';
 import { PluginPage } from './PluginPage';
-import { ApiInterfacePage } from './ApiInterfacePage';
+import { GlobalApiConfigTab } from './GlobalApiConfigTab';
 import { safeJson } from '../lib/fetch';
 
 interface SkillsPageProps {
   user: any;
+  onUserUpdate?: () => void;
 }
 
-export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
+export const SkillsPage: React.FC<SkillsPageProps> = ({ user, onUserUpdate }) => {
   const [category, setCategory] = useState<'skill' | 'workflow' | 'ai-studio' | 'api'>('skill');
   const [customSkills, setCustomSkills] = useState<AiSkill[]>([]);
   const [activeTab, setActiveTab] = useState<'my' | 'ai-studio' | 'explore' | 'create'>('my');
@@ -177,11 +178,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
     }
   }, []);
 
-  useEffect(() => {
-    if (category === 'api' && user?.role !== 'admin') {
-      setCategory('skill');
-    }
-  }, [category, user]);
+  // Allow all users to access the API interface (which has read-only state for non-admins)
 
   useEffect(() => {
     setErrorMess('');
@@ -438,6 +435,27 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
               )}
               <Sparkles className={`w-4 h-4 relative z-10 transition-transform duration-300 ${category === 'ai-studio' ? 'scale-110 text-indigo-600' : 'text-slate-400'}`} />
               <span className="relative z-10 tracking-wider">plugin</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setCategory('api');
+              }}
+              className={`relative px-5 py-2.5 text-xs font-black rounded-xl transition-all duration-300 flex items-center space-x-2 cursor-pointer z-10 ${
+                category === 'api'
+                  ? 'text-indigo-600 font-extrabold'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {category === 'api' && (
+                <motion.div
+                  layoutId="activeCategoryBg"
+                  className="absolute inset-0 bg-white rounded-xl shadow-xs border border-slate-100"
+                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                />
+              )}
+              <Settings className={`w-4 h-4 relative z-10 transition-transform duration-300 ${category === 'api' ? 'scale-110 text-indigo-600' : 'text-slate-400'}`} />
+              <span className="relative z-10 tracking-wider">模型接口</span>
             </button>
 
 
@@ -1236,7 +1254,7 @@ export const SkillsPage: React.FC<SkillsPageProps> = ({ user }) => {
         )}
 
         {category === 'api' && (
-          <ApiInterfacePage user={user} />
+          <GlobalApiConfigTab onUserUpdate={onUserUpdate} />
         )}
       </div>
 

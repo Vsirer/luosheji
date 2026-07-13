@@ -1,4 +1,4 @@
-import { AiSkill } from "../types.ts";
+import type { AiSkill } from "../types.ts";
 import { ASSET_AGENT_SYSTEM_INSTRUCTION } from "../../components/agents/assetAgent.ts";
 
 export const assetPromptSkill: AiSkill = {

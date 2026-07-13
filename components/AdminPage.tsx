@@ -38,7 +38,6 @@ import {
   Area
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { GlobalApiConfigTab } from './GlobalApiConfigTab';
 import { DEFAULT_CONFIG } from '../constants';
 import { Config } from '../types';
 import { safeJson } from '../lib/fetch';
@@ -48,7 +47,7 @@ interface AdminPageProps {
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'database' | 'oss' | 'api' | 'stats'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'database' | 'oss' | 'stats'>('users');
   const [isMounted, setIsMounted] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -437,14 +436,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
               OSS 配置
             </button>
             <button 
-              onClick={() => setActiveTab('api')}
-              className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
-                activeTab === 'api' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-zinc-700'
-              }`}
-            >
-              全局接口配置
-            </button>
-            <button 
               onClick={() => setActiveTab('stats')}
               className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
                 activeTab === 'stats' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-zinc-700'
@@ -810,8 +801,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onUserUpdate }) => {
             </div>
           </div>
         </div>
-      ) : activeTab === 'api' ? (
-        <GlobalApiConfigTab onUserUpdate={onUserUpdate} />
       ) : (
         <motion.div
           initial={{ opacity: 0, y: 20 }}

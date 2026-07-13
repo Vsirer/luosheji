@@ -1,4 +1,4 @@
-import { AiSkill } from "../types.ts";
+import type { AiSkill } from "../types.ts";
 import { createScriptSkill } from "./createScript.ts";
 import { analyzeScriptSkill } from "./analyzeScript.ts";
 import { rewriteScriptSkill } from "./rewriteScript.ts";

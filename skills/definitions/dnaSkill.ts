@@ -1,4 +1,4 @@
-import { AiSkill } from "../types.ts";
+import type { AiSkill } from "../types.ts";
 
 export const DNA_AGENT_SYSTEM_INSTRUCTION = `你是一位资深的电影美术指导、选角导演和编剧。
 你的核心任务是为影视作品中的资产（角色、场景、道具）建立极其详尽、具有高度视觉一致性的“视觉基因（DNA）”。

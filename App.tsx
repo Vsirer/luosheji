@@ -786,6 +786,7 @@ const App: React.FC = () => {
                     <SkillsPage 
                       key={`skills-${user?.id || 'guest'}`}
                       user={user}
+                      onUserUpdate={refreshUser}
                     />
                   )}
 

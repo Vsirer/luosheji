@@ -129,6 +129,7 @@ import { twMerge } from "tailwind-merge";
 import { SYSTEM_SKILLS } from "../skills/definitions";
 import { PLUGINS } from "../plugin";
 import * as Icons from "lucide-react";
+import { EventBus } from "../lib/os/EventBus";
 
 const SkillIcon = ({ icon, className = "w-3.5 h-3.5" }: { icon: any; className?: string }) => {
   if (!icon) return <Sparkles className={className} />;
@@ -860,6 +861,105 @@ export const SmartImageGenerator: React.FC<SmartImageGeneratorProps> = ({
       window.removeEventListener('generative-ui-fullscreen-change', handlePopupChange);
     };
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = EventBus.subscribe('*', (event) => {
+      const { type, payload } = event;
+      
+      if (type === 'TASK_STATUS_CHANGED') {
+        const task = payload;
+        if (!task || !task.id) return;
+        
+        rawSetHistory((prev) => {
+          const exists = prev.some(item => item.id === task.id);
+          if (exists) {
+            return prev.map(item => {
+              if (item.id === task.id) {
+                let status: any = 'pending';
+                if (task.lifecycle === 'RUNNING') status = 'running';
+                if (task.lifecycle === 'COMPLETED') status = 'success';
+                if (task.lifecycle === 'FAILED') status = 'failed';
+                
+                return {
+                  ...item,
+                  status,
+                  error: task.error,
+                  imageUrl: task.type === 'image' && task.output?.url ? task.output.url : item.imageUrl,
+                  videoUrl: task.type === 'video' && task.output?.url ? task.output.url : item.videoUrl,
+                  url: task.output?.url || (item as any).url
+                };
+              }
+              return item;
+            });
+          } else if (task.lifecycle === 'RUNNING' || task.lifecycle === 'COMPLETED') {
+            const newNode: any = {
+              id: task.id,
+              type: task.type === 'script' ? 'gen_script' : task.type,
+              status: task.lifecycle === 'COMPLETED' ? 'success' : 'running',
+              prompt: task.prompt,
+              timestamp: task.timestamp || Date.now(),
+              position: {
+                x: (Math.random() - 0.5) * 200,
+                y: (Math.random() - 0.5) * 200,
+              },
+              config: {
+                title: task.name,
+                prompt: task.prompt
+              }
+            };
+            return [newNode, ...prev];
+          }
+          return prev;
+        });
+      }
+      
+      if ((type as string) === 'ARTIFACT_CREATED') {
+        const artifact = payload;
+        if (!artifact || !artifact.id) return;
+        
+        rawSetHistory((prev) => {
+          const exists = prev.some(item => item.id === artifact.id || item.id === artifact.id.replace('result_', ''));
+          if (exists) {
+            return prev.map(item => {
+              if (item.id === artifact.id || item.id === artifact.id.replace('result_', '')) {
+                return {
+                  ...item,
+                  status: 'success',
+                  imageUrl: artifact.imageUrl || item.imageUrl,
+                  videoUrl: artifact.videoUrl || item.videoUrl,
+                  url: artifact.imageUrl || artifact.videoUrl || (item as any).url,
+                  revisedPrompt: artifact.revisedPrompt || item.revisedPrompt
+                };
+              }
+              return item;
+            });
+          } else {
+            const newNode: any = {
+              id: artifact.id,
+              type: artifact.type,
+              status: 'success',
+              prompt: artifact.prompt,
+              revisedPrompt: artifact.revisedPrompt,
+              imageUrl: artifact.imageUrl,
+              videoUrl: artifact.videoUrl,
+              url: artifact.imageUrl || artifact.videoUrl,
+              timestamp: artifact.timestamp || Date.now(),
+              position: {
+                x: (Math.random() - 0.5) * 200,
+                y: (Math.random() - 0.5) * 200,
+              },
+              config: artifact.config || {}
+            };
+            return [newNode, ...prev];
+          }
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [rawSetHistory]);
 
 
 
@@ -13808,14 +13908,12 @@ ${prompt}
                     assets={getMentionableAssets()}
                     skills={workflowSkills}
                     placeholder={
-                      hasParentConnection
-                        ? "⚠️ 该节点已被上游节点连接，内容与生成须由上游节点驱动，无法使用底部控制台直接生成。请点击上游节点的「运行此节点」按钮。"
-                        : isCollabModeActive
-                          ? (collabChatTargetId.endsWith('_ai')
-                            ? "在此输入消息或需求，同 AI 助手进行创作..."
-                            : "在此输入消息，与团队成员进行沟通...")
-                          : mode === "video"
-                            ? "请输入你想生成的视频描述... (输入 @ 引用历史素材)"
+                      isCollabModeActive
+                        ? (collabChatTargetId.endsWith('_ai')
+                          ? "在此输入消息或需求，同 AI 助手进行创作..."
+                          : "在此输入消息，与团队成员进行沟通...")
+                        : mode === "video"
+                          ? "请输入你想生成的视频描述... (输入 @ 引用历史素材)"
                             : mode === "script"
                               ? scriptConfig.activeSubTab === "create"
                                 ? scriptConfig.creationType === "continue"
@@ -13989,7 +14087,7 @@ ${prompt}
                         }
                       }
                     }}
-                    disabled={isEnhancing || isGenerating || hasParentConnection}
+                    disabled={isEnhancing || isGenerating}
                   />
 
                   {/* Mention Suggestions */}
@@ -17245,8 +17343,7 @@ ${prompt}
                         : (isLocked ||
                           isGenerating ||
                           !hasContent ||
-                          isMissingRequiredRef ||
-                          hasParentConnection);
+                          isMissingRequiredRef);
 
                       return (
                         <button
@@ -17267,11 +17364,9 @@ ${prompt}
                           title={
                             isCollabModeActive
                               ? "发送到协同创作空间"
-                              : hasParentConnection
-                                ? "⚠️ 该节点已被上游节点连接，内容/生成必须由上游节点驱动"
-                                : isMissingRequiredRef
-                                  ? "RH-SD2.0 仅支持多参生成，请添加素材或在提示词中@引用素材"
-                                  : "执行生成"
+                              : isMissingRequiredRef
+                                ? "RH-SD2.0 仅支持多参生成，请添加素材或在提示词中@引用素材"
+                                : "执行生成"
                           }
                         >
                           {isLocked || isGenerating ? (

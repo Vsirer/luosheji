@@ -1,4 +1,4 @@
-import { AiSkill } from "../types.ts";
+import type { AiSkill } from "../types.ts";
 import { SHARED_ASSET_RULES } from "../../services/rules.ts";
 
 export const ASSET_LIBRARY_AGENT_SYSTEM_INSTRUCTION = `

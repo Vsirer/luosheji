@@ -1,4 +1,4 @@
-import { AiSkill } from "../types.ts";
+import type { AiSkill } from "../types.ts";
 
 export const shotPromptSkill: AiSkill = {
   id: "shot-prompt",

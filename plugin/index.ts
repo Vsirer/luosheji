@@ -1,33 +1,36 @@
 import { AiSkill } from '../skills/types';
-import { SYSTEM_PLUGINS } from './definitions';
+import { PluginRegistry } from '../lib/os/registries/PluginRegistry';
 
 export * from './definitions';
 
-export const PLUGINS: AiSkill[] = new Proxy(SYSTEM_PLUGINS, {
+// Export an adapter list that dynamically reads from the unified PluginRegistry
+export const PLUGINS: AiSkill[] = new Proxy([], {
   get(target, prop, receiver) {
-    if (typeof window !== 'undefined') {
-      try {
-        const deletedIds = JSON.parse(localStorage.getItem('deleted_system_plugins') || '[]');
-        const editedPlugins = JSON.parse(localStorage.getItem('edited_system_plugins') || '{}');
-        const userPlugins = JSON.parse(localStorage.getItem('user_plugins') || '[]');
-        const active = SYSTEM_PLUGINS
-          .filter(p => !deletedIds.includes(p.id))
-          .map(p => {
-            if (editedPlugins[p.id]) {
-              return { ...p, ...editedPlugins[p.id], isPublic: true };
-            }
-            return { ...p, isPublic: true };
-          }).concat(userPlugins.map((p: any) => ({ ...p, isPublic: true })));
-        const val = Reflect.get(active, prop, receiver);
-        if (typeof val === 'function') {
-          return val.bind(active);
-        }
-        return val;
-      } catch (e) {
-        console.error('Failed to resolve dynamic PLUGINS in proxy:', e);
-      }
+    const list = PluginRegistry.list().map(plugin => {
+      const firstSkill = plugin.contributes?.skills?.[0];
+      return {
+        id: plugin.id,
+        name: plugin.name,
+        desc: plugin.description,
+        icon: plugin.icon,
+        instruction: firstSkill?.instruction || '',
+        isSystem: ['panorama', 'camera-control', 'perspective-sim', 'point-and-shoot'].includes(plugin.id),
+        isInstalled: true,
+        isPublic: true,
+        customOptions: firstSkill?.customOptions || null,
+        category: plugin.category as any,
+        enableUpload: firstSkill?.enableUpload,
+        uploadType: firstSkill?.uploadType as any,
+        promptLabel: firstSkill?.promptLabel,
+        promptPlaceholder: firstSkill?.promptPlaceholder
+      } as AiSkill;
+    });
+
+    const val = Reflect.get(list, prop, receiver);
+    if (typeof val === 'function') {
+      return val.bind(list);
     }
-    return Reflect.get(target, prop, receiver);
+    return val;
   }
 });
-
+export default PLUGINS;

@@ -543,8 +543,8 @@ async function startServer() {
       const base64Rolled = rolledBuffer.toString('base64');
       const dataUrl = `data:image/png;base64,${base64Rolled}`;
       
-      const [apiRows]: any = await db.query('SELECT value FROM settings WHERE `key` = ?', ['global_api_config']);
-      const apiConfig = apiRows[0] ? JSON.parse(apiRows[0].value) : DEFAULT_API_CONFIG;
+      const userConfig = await getGlobalApiConfig(req.user.id);
+      const apiConfig = (userConfig || DEFAULT_API_CONFIG) as any;
       
     const healConfig: any = {
         prompt: "Perfectly blend and merge the vertical seam line in the center of this panoramic image. Ensure smooth transitions for floors, ceilings, and walls. Keep the rest of the image unchanged. Realistic architectural photography style.",
@@ -1193,17 +1193,16 @@ async function startServer() {
     const slot = modelSlot || 'script';
 
     try {
-      const [rows]: any = await db.query('SELECT `value` FROM settings WHERE `key` = ?', ['global_api_config']);
+      const userConfig = await getGlobalApiConfig(req.user.id);
       const baseConfig = JSON.parse(JSON.stringify(DEFAULT_API_CONFIG));
       let globalConfig = baseConfig;
-      if (rows.length > 0) {
-        const dbConfig = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+      if (userConfig) {
         globalConfig = { ...baseConfig };
-        Object.keys(dbConfig).forEach(key => {
+        Object.keys(userConfig).forEach(key => {
           if (globalConfig[key]) {
-            globalConfig[key] = { ...globalConfig[key], ...dbConfig[key] };
+            globalConfig[key] = { ...globalConfig[key], ...userConfig[key] };
           } else {
-            globalConfig[key] = dbConfig[key];
+            globalConfig[key] = userConfig[key];
           }
         });
       }
@@ -3035,9 +3034,8 @@ ${chatHistory}
 直接输出回复内容，不要带任何前缀。`;
               }
 
-              // Get global config for image helper
-              const [configRows]: any = await db.query("SELECT value FROM settings WHERE `key` = 'global_api_config'");
-              const globalConfig = safeParseJson(configRows[0]?.value, {});
+              // Get user config for image helper
+              const globalConfig = (await getGlobalApiConfig(req.user.id) || DEFAULT_API_CONFIG) as any;
 
               // Determine which API key to use based on the responding agent and global settings
               // Always check DB config first as it's what the user sees in UI
@@ -4006,21 +4004,49 @@ ${chatHistory}
     }
   });
 
-  app.get("/api/admin/settings/api-config", authenticateToken, isAdmin, async (req, res) => {
+  app.get("/api/user/settings/api-config", authenticateToken, async (req: any, res) => {
     try {
-      const [rows]: any = await db.query('SELECT value FROM settings WHERE `key` = ?', ['global_api_config']);
-      if (rows.length > 0) {
-        const val = rows[0].value;
-        res.json(typeof val === 'string' ? JSON.parse(val) : val);
+      const userId = req.user.id;
+      const [prefRows]: any = await db.query(
+        'SELECT pref_value FROM user_preferences WHERE user_id = ? AND pref_key = ?',
+        [userId, 'api_config']
+      );
+      if (prefRows.length > 0) {
+        const val = prefRows[0].pref_value;
+        return res.json(typeof val === 'string' ? JSON.parse(val) : val);
       } else {
-        res.json({});
+        // Fallback to global settings template
+        const [rows]: any = await db.query('SELECT value FROM settings WHERE `key` = ?', ['global_api_config']);
+        if (rows.length > 0) {
+          const val = rows[0].value;
+          return res.json(typeof val === 'string' ? JSON.parse(val) : val);
+        } else {
+          return res.json({});
+        }
       }
     } catch (e: any) {
-      res.status(500).json({ error: "Failed to fetch global API settings", details: e.message });
+      res.status(500).json({ error: "获取用户接口配置失败", details: e.message });
     }
   });
 
-  app.post("/api/admin/test-api-config", authenticateToken, isAdmin, async (req, res) => {
+  app.post("/api/user/settings/api-config", authenticateToken, async (req: any, res) => {
+    const config = req.body;
+    try {
+      const userId = req.user.id;
+      const valStr = JSON.stringify(config);
+      
+      await db.query('DELETE FROM user_preferences WHERE user_id = ? AND pref_key = ?', [userId, 'api_config']);
+      await db.query('INSERT INTO user_preferences (user_id, pref_key, pref_value) VALUES (?, ?, ?)', 
+        [userId, 'api_config', valStr]);
+
+      res.json({ success: true, message: "个人模型接口配置更新成功" });
+    } catch (e: any) {
+      console.error('Failed to update user API settings:', e);
+      res.status(500).json({ error: "保存配置失败", details: e.message });
+    }
+  });
+
+  app.post("/api/user/test-api-config", authenticateToken, async (req: any, res) => {
     const { type, config } = req.body;
     const { provider, endpoint, path, apiKey, model, protocolType } = config;
 
@@ -4034,10 +4060,8 @@ ${chatHistory}
       const effectiveProtocol = protocolType || (provider === 'Google gemini' ? 'google' : 'openai');
 
       if (effectiveProtocol === 'google') {
-        // Test by listing models
         let cleanBase = endpoint.replace(/\/$/, '');
         
-        // If it's a full URL, we extract the base origin + version
         if (cleanBase.includes(':generateContent') || cleanBase.includes(':predict') || cleanBase.includes(':generateImages')) {
           try {
             const urlObj = new URL(cleanBase);
@@ -4057,7 +4081,6 @@ ${chatHistory}
           testUrl = `${cleanBase}/v1beta/models?key=${apiKey}`;
         }
       } else if (provider === 'Seedance') {
-        // Test by GET request to tasks endpoint
         testUrl = endpoint.replace(/\/$/, '');
         headers['Authorization'] = `Bearer ${apiKey}`;
       } else if (protocolType === 'claude' || protocolType === 'anthropic' || endpoint.includes('/v1/messages') || endpoint.includes('/messages')) {
@@ -4074,7 +4097,6 @@ ${chatHistory}
         headers['anthropic-version'] = '2023-06-01';
         headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
       } else {
-        // Third Party / OpenAI Protocol - Test by listing models
         let cleanBase = endpoint.replace(/\/$/, '');
         
         if (cleanBase.includes(':') || cleanBase.includes('/v1beta/') || cleanBase.includes('/v1/') || cleanBase.includes('/chat/completions') || cleanBase.includes('/images/generations')) {
@@ -4084,17 +4106,14 @@ ${chatHistory}
           } catch (e) {}
         }
         
-        // Remove trailing versions to avoid double versing
         cleanBase = cleanBase.replace(/\/v1$/, '').replace(/\/v1beta$/, '');
         testUrl = `${cleanBase}/v1/models`;
-        
-        // Final sanity check for double version
         testUrl = testUrl.replace(/\/v1\/v1\//g, '/v1/').replace(/\/v1beta\/v1\//g, '/v1beta/');
         
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
-      console.log(`[Test API] Testing ${type} with protocol ${effectiveProtocol} (Provider: ${provider}) at ${testUrl}`);
+      console.log(`[User Test API] Testing ${type} with protocol ${effectiveProtocol} (Provider: ${provider}) at ${testUrl}`);
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -4110,53 +4129,40 @@ ${chatHistory}
         return res.json({ success: true, message: "Connection successful" });
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error(`[Test API] Failed: ${response.status}`, errorData);
+        console.error(`[User Test API] Failed: ${response.status}`, errorData);
         return res.status(response.status).json({ 
           error: `Connection failed (Status ${response.status})`, 
           details: errorData.error?.message || errorData.message || "Unknown error" 
         });
       }
     } catch (e: any) {
-      console.error('[Test API] Exception:', e);
+      console.error('[User Test API] Exception:', e);
       return res.status(500).json({ error: "Connection test failed", details: e.message });
     }
   });
 
-  app.post("/api/admin/settings/api-config", authenticateToken, isAdmin, async (req, res) => {
-    const config = req.body;
-    console.log('Saving global API config:', JSON.stringify(config));
+  app.get("/api/user/global-api-config", authenticateToken, async (req: any, res) => {
+    const userId = req.user?.id;
+    console.log(`[API] Received request for global-api-config from user: ${userId}`);
     try {
-      await db.query('INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?', 
-        ['global_api_config', JSON.stringify(config), JSON.stringify(config)]);
-      res.json({ success: true, message: "Global API settings updated" });
-    } catch (e: any) {
-      console.error('Failed to update global API settings:', e);
-      res.status(500).json({ error: "Failed to update global API settings", details: e.message });
-    }
-  });
-
-  app.get("/api/user/global-api-config", authenticateToken, async (req, res) => {
-    console.log(`[API] Received request for global-api-config from user: ${(req as any).user?.id}`);
-    try {
-      const [rows]: any = await db.query('SELECT `value` FROM settings WHERE `key` = ?', ['global_api_config']);
+      const userConfig = await getGlobalApiConfig(userId);
       const baseConfig = JSON.parse(JSON.stringify(DEFAULT_API_CONFIG));
-      if (rows.length > 0) {
-        const val = rows[0].value;
-        const dbConfig = typeof val === 'string' ? JSON.parse(val) : val;
-        // Merge DB config into base config
+      if (userConfig) {
         const merged = { ...baseConfig };
-        Object.keys(dbConfig).forEach(key => {
-          if (dbConfig[key]) merged[key] = { ...merged[key], ...dbConfig[key] };
+        Object.keys(userConfig).forEach(key => {
+          if (userConfig[key]) {
+            merged[key] = { ...merged[key], ...userConfig[key] };
+          }
         });
-        console.log('[API] Fetched merged global API config from DB');
+        console.log(`[API] Fetched merged API config from user preferences for user ${userId}`);
         return res.json(merged);
       } else {
-        console.log('[API] No global API config found in DB, returning DEFAULT_API_CONFIG');
+        console.log('[API] No user preferences found, returning DEFAULT_API_CONFIG');
         return res.json(baseConfig);
       }
     } catch (e: any) {
-      console.error('[API] Failed to fetch global API settings:', e);
-      return res.status(500).json({ error: "Failed to fetch global API settings", details: e.message });
+      console.error('[API] Failed to fetch user API settings:', e);
+      return res.status(500).json({ error: "Failed to fetch user API settings", details: e.message });
     }
   });
 
@@ -4436,23 +4442,34 @@ ${chatHistory}
     }
   });
 
-  async function getGlobalApiConfig(): Promise<Config | null> {
+  async function getGlobalApiConfig(userId?: number): Promise<Config | null> {
     try {
+      if (userId) {
+        const [prefRows]: any = await db.query(
+          'SELECT pref_value FROM user_preferences WHERE user_id = ? AND pref_key = ?',
+          [userId, 'api_config']
+        );
+        if (prefRows.length > 0) {
+          const val = prefRows[0].pref_value;
+          return typeof val === 'string' ? JSON.parse(val) : val;
+        }
+      }
+
       const [rows]: any = await db.query('SELECT `value` FROM settings WHERE `key` = ?', ['global_api_config']);
       if (rows.length > 0) {
         const val = rows[0].value;
         return typeof val === 'string' ? JSON.parse(val) : val;
       }
     } catch (e) {
-      console.error('Failed to fetch global API config:', e);
+      console.error('Failed to fetch global/user API config:', e);
     }
     return null;
   }
 
-  app.post('/api/video/test-connection', authenticateToken, isAdmin, async (req, res) => {
+  app.post('/api/video/test-connection', authenticateToken, async (req: any, res) => {
     try {
       const bodyConfig = req.body.config || {};
-      const appConfig = await getVolcCredentials();
+      const appConfig = await getVolcCredentials(req.user?.id);
       
       const config = {
         ak: bodyConfig.accessKeyId || appConfig.ak,
@@ -4542,8 +4559,8 @@ ${chatHistory}
   // --- Seedance 2.0 Video Generation ---
   
   // Volcengine Asset Management Helpers
-  const getVolcCredentials = async () => {
-    const globalConfig = await getGlobalApiConfig();
+  const getVolcCredentials = async (userId?: number) => {
+    const globalConfig = await getGlobalApiConfig(userId);
     const config = globalConfig?.videoSeedance;
     
     return {
@@ -4556,9 +4573,9 @@ ${chatHistory}
     };
   };
 
-  app.post('/api/video/asset-group', authenticateToken, async (req, res) => {
+  app.post('/api/video/asset-group', authenticateToken, async (req: any, res) => {
     try {
-      const { ak, sk, project, region } = await getVolcCredentials();
+      const { ak, sk, project, region } = await getVolcCredentials(req.user?.id);
       const { name, description } = req.body;
       
       const response = await volcFetch({
@@ -4581,9 +4598,9 @@ ${chatHistory}
     }
   });
 
-  app.post('/api/video/asset', authenticateToken, async (req, res) => {
+  app.post('/api/video/asset', authenticateToken, async (req: any, res) => {
     try {
-      const { ak, sk, project, region } = await getVolcCredentials();
+      const { ak, sk, project, region } = await getVolcCredentials(req.user?.id);
       const { groupId, url, name } = req.body;
       
       const response = await volcFetch({
@@ -4608,9 +4625,9 @@ ${chatHistory}
     }
   });
 
-  app.get('/api/video/asset/:assetId', authenticateToken, async (req, res) => {
+  app.get('/api/video/asset/:assetId', authenticateToken, async (req: any, res) => {
     try {
-      const { ak, sk, project, region } = await getVolcCredentials();
+      const { ak, sk, project, region } = await getVolcCredentials(req.user?.id);
       const { assetId } = req.params;
       
       const response = await volcFetch({

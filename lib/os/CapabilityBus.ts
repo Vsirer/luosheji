@@ -1,151 +1,194 @@
-import { EventBus, Capability } from './EventBus';
+import { EventBus } from './EventBus';
 import { IntentRuntime } from './IntentRuntime';
+import { AgentRegistry } from './registries/AgentRegistry';
+import { ModelRegistry } from './registries/ModelRegistry';
+import { SkillRegistry } from './registries/SkillRegistry';
+import { Task, RuntimeTask, RuntimeContext, CapabilityResult, CanvasArtifact } from './types';
 
 export interface CapabilityPayload {
   prompt?: string;
   action?: string;
+  task?: Task;
+  imageUrl?: string;
+  aspectRatio?: string;
+  duration?: string;
+  systemInstruction?: string;
   [key: string]: any;
 }
 
-export interface CapabilityResult {
-  success: boolean;
-  output: any;
-  providerUsed: string;
-  attempts: number;
-  error?: string;
-}
-
 class CapabilityBusService {
-  private capabilities: Map<string, Capability> = new Map();
-
-  constructor() {
-    this.registerDefaultCapabilities();
-  }
-
-  private registerDefaultCapabilities() {
-    const defaults: Capability[] = [
-      { id: 'cap_think', name: '逻辑思考能力 (Think)', type: 'Think', provider: 'Gemini 3.5 / Claude 3.5', description: '自然语言深度逻辑推理、意图解析与DAG规划' },
-      { id: 'cap_vision', name: '多模态感知能力 (Vision)', type: 'Vision', provider: 'Gemini 3.5 Multimodal', description: '视频帧分析、剧本分镜匹配、多视角视觉评估' },
-      { id: 'cap_action', name: '数字资产创作能力 (Action)', type: 'Action', provider: 'Veo / Sora / Flux', description: '高品质生图、视频动画渲染、代码沙盒执行' },
-      { id: 'cap_data', name: '数据存取持久化 (Data)', type: 'Data', provider: 'SQLite / OSS Storage', description: '向量库读写、会话记忆检索、数据库增删改查' },
-      { id: 'cap_comm', name: '人机交互/团队协作 (Comm)', type: 'Comm', provider: 'Event Bus / Webhook', description: '协同空间实时推送、群组消息通知、任务挂起轮询' },
-    ];
-    defaults.forEach(cap => this.capabilities.set(cap.id, cap));
-  }
-
-  public register(capability: Capability) {
-    this.capabilities.set(capability.id, capability);
-    EventBus.publish('EVENT_TRIGGERED', 'CapabilityBus', capability, `[能力总线] 注册新系统能力 ➔ [${capability.name}] 由 [${capability.provider}] 驱动`);
-  }
-
-  public getCapability(id: string): Capability | undefined {
-    return this.capabilities.get(id);
-  }
+  constructor() {}
 
   /**
-   * Unified Capability Execution Gateway with context injection and fault-tolerance/recovery (自愈机制)
+   * Unified Capability Execution Gateway supporting both:
+   * 1. CapabilityBus.execute(task, context)
+   * 2. CapabilityBus.execute(capabilityId, payload, context)
    */
-  public async execute(capabilityId: string, payload: CapabilityPayload): Promise<CapabilityResult> {
-    const capability = this.capabilities.get(capabilityId);
-    if (!capability) {
-      throw new Error(`Capability with id ${capabilityId} is not registered in the Capability Bus.`);
+  public async execute(
+    capabilityIdOrTask: string | Task,
+    payloadOrContext?: CapabilityPayload | any,
+    context?: any
+  ): Promise<CapabilityResult> {
+    let task: Task;
+    let systemContext: any = {};
+
+    if (typeof capabilityIdOrTask === 'object') {
+      task = capabilityIdOrTask;
+      systemContext = {
+        ...IntentRuntime.getContext(),
+        ...payloadOrContext
+      };
+    } else {
+      const capId = capabilityIdOrTask;
+      const payload = payloadOrContext || {};
+      task = payload.task || {
+        id: 'temp_task_' + Math.random().toString(36).substring(2, 7),
+        goalId: 'temp_goal',
+        name: payload.prompt || 'Temporary Task',
+        title: payload.prompt || 'Temporary Task',
+        type: capId === 'cap_action' ? (payload.action === 'generateVideo' ? 'video' : 'image') : (capId === 'cap_vision' ? 'vision' : 'text'),
+        prompt: payload.prompt || '',
+        status: 'running',
+        dependsOn: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        skillId: payload.skillId
+      };
+      systemContext = {
+        ...IntentRuntime.getContext(),
+        ...context,
+        imageUrl: payload.imageUrl,
+        aspectRatio: payload.aspectRatio,
+        duration: payload.duration
+      };
     }
 
-    // Publish event indicating execution started
-    EventBus.publish('CAPABILITY_CALLED', 'CapabilityBus', { capabilityId, payload }, `[能力总线] 调用能力 [${capability.name}] ➔ 承载方: ${capability.provider}`);
+    // Publish TASK_STARTED
+    task.lifecycle = 'RUNNING';
+    task.status = 'running';
+    EventBus.publish('TASK_STATUS_CHANGED' as any, 'CapabilityBus', { ...task }, `[运行时] 开始运行任务: ${task.name || task.title}`);
 
-    // Context Engine Interceptor - Auto-enrich payload with system configurations (Brand, ratio, safety, model provider)
-    const systemContext = IntentRuntime.getContext();
-    const enrichedPayload = {
-      ...payload,
-      _context: {
-        brandName: systemContext.brandName,
-        ratio: systemContext.videoRatio,
-        resolution: systemContext.resolution,
-        safetyLevel: systemContext.safetyFilterLevel,
-        modelProvider: systemContext.modelProvider,
-        timestamp: Date.now()
-      }
-    };
-
-    let attempts = 0;
-    const maxRetries = systemContext.maxRetries;
+    let resultOutput: any = null;
+    let providerUsed = '';
     let success = false;
-    let output: any = null;
     let errorMsg = '';
-    let activeProvider = systemContext.modelProvider;
 
-    // Simulate reliable Model Bus execution loop with multi-provider failover
-    while (attempts < maxRetries && !success) {
-      attempts++;
-      try {
-        // Simulate execution. In a real system, this connects to the actual Gemini/Claude API or tool framework
-        if (capabilityId === 'cap_think') {
-          // Simulate some intermittent failure on the first try if using high-tier models to demonstrate self-healing
-          if (attempts === 1 && systemContext.modelProvider === 'Claude 3.5 Sonnet') {
-            throw new Error('API Rate Limit Exceeded (429)');
+    try {
+      // 1. If task.skillId exists, check SkillRegistry
+      if (task.skillId) {
+        const skill = SkillRegistry.get(task.skillId);
+        if (skill) {
+          if (skill.execute) {
+            resultOutput = await skill.execute(task, systemContext);
+            success = true;
+            providerUsed = 'SkillExecutor';
+          } else {
+            // skill has only instruction -> prompt skill. Run with the best text model
+            const modelProvider = ModelRegistry.selectBest('text', systemContext);
+            if (!modelProvider) throw new Error('No text model available in registry');
+            
+            const systemInstruction = skill.instruction || '';
+            const prompt = task.prompt || '';
+            
+            resultOutput = await modelProvider.call('generateContent', {
+              model: modelProvider.id,
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              config: { systemInstruction, temperature: 0.7 }
+            }, systemContext.config);
+            
+            success = true;
+            providerUsed = modelProvider.name;
           }
-          output = {
-            text: `[${activeProvider}] 成功对提示词进行深度解析并生成逻辑方案。融合品牌约束 "${systemContext.brandName}"。`,
-            refinedPrompt: `${payload.prompt || '默认输入'} --style cinematic --ratio ${systemContext.videoRatio}`
-          };
-        } else if (capabilityId === 'cap_vision') {
-          output = {
-            aestheticScore: 94,
-            integrityCheck: 'Passed',
-            feedback: '构图饱满，色彩符合品牌基调。'
-          };
-        } else if (capabilityId === 'cap_action') {
-          output = {
-            assetUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe',
-            resolution: systemContext.resolution,
-            format: 'PNG'
-          };
-        } else if (capabilityId === 'cap_data') {
-          output = {
-            dbStatus: 'Success',
-            recordsAffected: 1
-          };
         } else {
-          output = {
-            status: 'Acknowledged',
-            timestamp: Date.now()
-          };
+          throw new Error(`Skill ${task.skillId} not found in SkillRegistry`);
         }
-
-        success = true;
-      } catch (err: any) {
-        errorMsg = err.message || String(err);
-        
-        // Dynamic Recovery: If primary model fails, switch to backup model (Model Bus routing)
-        const fallbackProvider = activeProvider === 'Claude 3.5 Sonnet' ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
-        
-        EventBus.publish('EVENT_TRIGGERED', 'RecoveryEngine', {
-          error: errorMsg,
-          attempt: attempts,
-          failedProvider: activeProvider,
-          fallbackProvider
-        }, `[容灾自愈] 能力 [${capability.name}] 执行失败: ${errorMsg}。启动自动恢复机制 ➔ 尝试切换至备用模型 [${fallbackProvider}] (重试 ${attempts}/${maxRetries})`);
-        
-        activeProvider = fallbackProvider;
-        await new Promise(r => setTimeout(r, 800)); // Delay for recovery stabilization
       }
+      // 2. If task.agentId exists, use AgentRegistry
+      else if (task.agentId && AgentRegistry.has(task.agentId)) {
+        const agent = AgentRegistry.get(task.agentId)!;
+        resultOutput = await agent.execute(task, systemContext);
+        success = true;
+        providerUsed = agent.name;
+      }
+      // 3. Find best agent by task.type (CapabilityKind)
+      else {
+        const bestAgent = AgentRegistry.findBestAgent(task, systemContext);
+        if (bestAgent) {
+          resultOutput = await bestAgent.execute(task, systemContext);
+          success = true;
+          providerUsed = bestAgent.name;
+        } else {
+          // Fallback to text model registry
+          let taskType: any = task.type;
+          if (taskType === 'script' || taskType === 'general') {
+            taskType = 'text';
+          }
+          const modelProvider = ModelRegistry.selectBest(taskType, systemContext);
+          if (modelProvider) {
+            resultOutput = await modelProvider.call('generateContent', {
+              model: modelProvider.id,
+              contents: [{ role: 'user', parts: [{ text: task.prompt || '' }] }]
+            }, systemContext.config);
+            success = true;
+            providerUsed = modelProvider.name;
+          } else {
+            throw new Error(`No available agent or model provider to execute task of type ${task.type}`);
+          }
+        }
+      }
+    } catch (err: any) {
+      success = false;
+      errorMsg = err.message || String(err);
     }
 
     if (success) {
+      task.status = 'completed';
+      task.lifecycle = 'COMPLETED';
+      task.output = resultOutput;
+      
+      // Publish TASK_COMPLETED
+      EventBus.publish('TASK_STATUS_CHANGED' as any, 'CapabilityBus', { ...task }, `[运行时] 任务 [${task.name || task.title}] 执行成功！`);
+
+      // Create artifact and publish ARTIFACT_CREATED
+      const artifact: CanvasArtifact = {
+        id: `result_${task.id}`,
+        taskId: task.id,
+        goalId: task.goalId,
+        type: task.type === 'script' ? 'code' : (task.type === 'image' || task.type === 'video' ? task.type : 'text') as any,
+        status: 'success',
+        imageUrl: task.type === 'image' ? (resultOutput?.url || resultOutput?.imageUrl) : undefined,
+        videoUrl: task.type === 'video' ? (resultOutput?.url || resultOutput?.videoUrl) : undefined,
+        prompt: task.prompt,
+        revisedPrompt: resultOutput?.revisedPrompt,
+        config: {
+          title: task.name || task.title,
+          skillId: task.skillId
+        },
+        timestamp: Date.now(),
+        createdAt: Date.now()
+      };
+      
+      EventBus.publish('ARTIFACT_CREATED' as any, 'ArtifactEngine', artifact, `[资产引擎] 生成新画布产物: ${task.name || task.title}`);
+      
       return {
         success: true,
-        output,
-        providerUsed: activeProvider,
-        attempts
+        output: resultOutput,
+        providerUsed,
+        attempts: 1
       };
     } else {
-      EventBus.publish('EVENT_TRIGGERED', 'ReliabilityGuard', { capabilityId, error: errorMsg }, `[可靠性守卫] 能力 [${capability.name}] 经过 ${maxRetries} 次重试后彻底失败 ➔ 触发系统应急降级预案`);
+      task.status = 'failed';
+      task.lifecycle = 'FAILED';
+      task.error = errorMsg;
+      
+      // Publish TASK_FAILED
+      EventBus.publish('TASK_STATUS_CHANGED' as any, 'CapabilityBus', { ...task }, `[运行时] 任务 [${task.name || task.title}] 执行失败: ${errorMsg}`);
+      
       return {
         success: false,
         output: null,
-        providerUsed: activeProvider,
-        attempts,
+        providerUsed,
+        attempts: 1,
         error: errorMsg
       };
     }
@@ -153,3 +196,4 @@ class CapabilityBusService {
 }
 
 export const CapabilityBus = new CapabilityBusService();
+export default CapabilityBus;

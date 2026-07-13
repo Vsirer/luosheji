@@ -497,8 +497,7 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
     isGenerating ||
     isOptimizing ||
     !hasContent ||
-    isMissingRequiredRef ||
-    hasParentConnection;
+    isMissingRequiredRef;
 
   // Submit trigger
   const handleGenerateSubmit = async () => {
@@ -2090,15 +2089,13 @@ export const InlineGenerationConsole: React.FC<InlineGenerationConsoleProps> = (
             onClick={handleGenerateSubmit}
             disabled={isDisabled}
             title={
-              hasParentConnection
-                ? "⚠️ 该节点已被上游节点连接，内容/生成必须由上游节点驱动"
-                : isMissingRequiredRef
-                  ? "RH-SD2.0 仅支持多参生成，请添加素材或在提示词中@引用素材"
-                  : !hasContent
-                    ? "请输入提示词或添加参考素材"
-                    : isImage
-                      ? "执行绘画生成"
-                      : "执行影音生成"
+              isMissingRequiredRef
+                ? "RH-SD2.0 仅支持多参生成，请添加素材或在提示词中@引用素材"
+                : !hasContent
+                  ? "请输入提示词或添加参考素材"
+                  : isImage
+                    ? "执行绘画生成"
+                    : "执行影音生成"
             }
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all relative ${
               isDisabled

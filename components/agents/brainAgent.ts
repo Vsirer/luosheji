@@ -3,6 +3,7 @@ import type { Config, SmartImageConfig } from "../../types.ts";
 import { directorAgent } from "./directorAgent.ts";
 import { imageAgent } from "./imageAgent.ts";
 import { videoAgent } from "./videoAgent.ts";
+import { CapabilityBus } from "../../lib/os/CapabilityBus";
 
 // Import all system skills and plugins to directly utilize their instructions
 import { createScriptSkill } from "../../skills/definitions/createScript.ts";
@@ -916,13 +917,17 @@ export class BrainAgent extends BaseAgent {
         promptText = `${step.prompt}\n\n以下是流水线上游环节为您准备的完整方案上下文，请严格参考并在此基础上开展你的本阶段深度创作：\n${context}`;
       }
 
-      const response = await directorAgent.callApi("script", "generateContent", {
-        model,
-        contents: [{ role: "user", parts: [{ text: promptText }] }],
-        config: { systemInstruction, temperature: 0.7 }
-      }, config);
-      
-      const text = response.text || (response.candidates?.[0]?.content?.parts?.[0]?.text) || "生成失败";
+      const capResult = await CapabilityBus.execute('cap_think', {
+        prompt: promptText,
+        systemInstruction,
+        skillId: step.skillId
+      }, { config });
+
+      if (!capResult.success) {
+        throw new Error(capResult.error || "脚本生成失败");
+      }
+
+      const text = capResult.output.text || capResult.output || "生成失败";
       return { text };
     }
 
@@ -993,20 +998,32 @@ export class BrainAgent extends BaseAgent {
         enrichedPrompt = `【正在应用SKILL规范: ${SKILL_INSTRUCTIONS[step.skillId].name}】\n${SKILL_INSTRUCTIONS[step.skillId].instruction}\n\n需求指令: ${enrichedPrompt}`;
       }
 
-      const imageConfig: SmartImageConfig = {
+      const capResult = await CapabilityBus.execute('cap_action', {
+        action: 'generateImage',
         prompt: enrichedPrompt,
-        aspectRatio: (step.aspectRatio || "16:9") as any,
-        model: selectedImageModel,
-        imageSize: "1K",
-        referenceImages: []
-      };
+        aspectRatio: step.aspectRatio || "16:9",
+        task: {
+          id: step.id,
+          goalId: `goal_${step.id}`,
+          name: step.label,
+          type: 'image',
+          prompt: enrichedPrompt,
+          lifecycle: 'RUNNING',
+          businessState: 'WAITING_MODEL',
+          dependsOn: [],
+          timestamp: Date.now()
+        }
+      }, { config });
 
-      const result = await imageAgent.generateSmartImage(imageConfig, config);
-      const url = result.ossUrl || result.imageUrl;
+      if (!capResult.success) {
+        throw new Error(capResult.error || "生图大模型调用失败");
+      }
+
+      const url = capResult.output.ossUrl || capResult.output.url || capResult.output.imageUrl;
       if (!url) {
         throw new Error("生图大模型返回的图片链接为空");
       }
-      return { url, revisedPrompt: result.revisedPrompt };
+      return { url, revisedPrompt: capResult.output.revisedPrompt || enrichedPrompt };
     }
 
     if (step.type === "video") {
@@ -1143,35 +1160,35 @@ export class BrainAgent extends BaseAgent {
         }
       }
 
-      const result = await videoAgent.generateVideo(enrichedPrompt, videoOptions, config);
-      
-      if (result.operationId) {
-        let opStatus = { done: false, videoUrl: "", error: null as any, status: "pending" };
-        const startTime = Date.now();
-        const timeout = 10 * 60 * 1000; // 10 minutes timeout
-        
-        while (!opStatus.done && (Date.now() - startTime < timeout)) {
-          if (onProgress) {
-            const elapsed = Math.round((Date.now() - startTime) / 1000);
-            onProgress(`🎬 视频后台渲染中... 已经过 ${elapsed} 秒`);
-          }
-          await new Promise(r => setTimeout(r, 6000)); // Poll every 6 seconds
-          opStatus = await videoAgent.getOperationStatus(result.operationId, config, selectedVideoModel);
-          if (opStatus.error) {
-            throw new Error(`视频渲染引擎报错: ${opStatus.error}`);
-          }
-        }
-        
-        if (opStatus.videoUrl) {
-          return { url: opStatus.videoUrl };
-        } else {
-          throw new Error("视频渲染超时，未获取到视频地址");
-        }
-      } else if (result.videoUrl) {
-        return { url: result.videoUrl };
-      } else {
-        throw new Error("视频渲染失败，未获取到异步任务ID");
+      const capResult = await CapabilityBus.execute('cap_action', {
+        action: 'generateVideo',
+        prompt: enrichedPrompt,
+        imageUrl: prevImage,
+        aspectRatio: step.aspectRatio || "16:9",
+        duration: step.duration || "15",
+        task: {
+          id: step.id,
+          goalId: `goal_${step.id}`,
+          name: step.label,
+          type: 'video',
+          prompt: enrichedPrompt,
+          lifecycle: 'RUNNING',
+          businessState: 'WAITING_MODEL',
+          dependsOn: [],
+          timestamp: Date.now()
+        },
+        videoOptions
+      }, { config, onProgress });
+
+      if (!capResult.success) {
+        throw new Error(capResult.error || "视频大模型调用失败");
       }
+
+      const url = capResult.output.url || capResult.output;
+      if (!url) {
+        throw new Error("视频大模型返回的视频链接为空");
+      }
+      return { url };
     }
 
     if (step.type === "code" || step.type === "ui") {
@@ -1195,13 +1212,17 @@ export class BrainAgent extends BaseAgent {
 
       if (onProgress) onProgress(`✨ 正在调用代码生成大脑，构建 ${step.type === "ui" ? "Generative UI" : "前端执行沙箱"} 代码...`);
 
-      const response = await directorAgent.callApi("script", "generateContent", {
-        model,
-        contents: [{ role: "user", parts: [{ text: promptText }] }],
-        config: { systemInstruction, temperature: 0.2 }
-      }, config);
+      const capResult = await CapabilityBus.execute('cap_think', {
+        prompt: promptText,
+        systemInstruction,
+        skillId: step.skillId
+      }, { config });
 
-      let text = response.text || (response.candidates?.[0]?.content?.parts?.[0]?.text) || "";
+      if (!capResult.success) {
+        throw new Error(capResult.error || "代码生成失败");
+      }
+
+      let text = capResult.output.text || capResult.output || "";
       // Strip markdown code blocks
       text = text.replace(/^```(javascript|js|tsx|ts|jsx)\s*/g, '').replace(/```$/g, '').trim();
 
